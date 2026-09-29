@@ -17,7 +17,12 @@
   - Ruta nueva: `POST /api/carreras/:id/largada`. No cambia la base: no hace falta volver a cargar `schema.sql`.
   - Todavía no se puede detener la carrera ni marcar llegadas (etapa 4). Para probar de nuevo, usar "Empezar una carrera nueva".
   - Falta probarla en el navegador: llenar el cupo, largar, recargar la página y ver que el reloj sigue.
-- [ ] Etapa 4: Llegadas, incidentes y tabla en vivo (el circuito se detiene cuando todos llegaron o tienen incidente).
+- [x] **Etapa 4: Llegadas, incidentes y tabla en vivo.** Después de largar aparecen tres bloques: "En pista" (botones Llegó e Incidente por competidor), "Posiciones" (ordenadas por tiempo, se actualiza con cada acción) e "Incidentes".
+  - "Llegó" guarda el tiempo con el reloj del servidor. Un incidente se puede marcar durante la carrera o después de terminada (pide confirmación y borra el tiempo).
+  - Cuando ya nadie queda en pista, la carrera pasa sola a "terminada" y el reloj queda con el tiempo total.
+  - Rutas nuevas: `POST /api/carreras/:id/competidores/:cid/llegada` y `.../incidente`. No cambia la base: no hace falta volver a cargar `schema.sql`.
+  - Los tiempos iguales a la centésima comparten puesto; el desempate llega en la etapa 5.
+  - Falta probarla en el navegador: carrera con cupo 3, un "Llegó", un "Incidente", un "Llegó", y ver que se frena el reloj.
 - [ ] Etapa 5: Empates y desempate (top 3, hasta 3 intentos). Requiere sumar las tablas `desempates` y `desempate_participantes`.
 - [ ] Etapa 6: Ganador y gestión final (zoom/resaltado del 1.er puesto, eliminación manual).
 - [ ] Etapa 7: Pruebas y pulido (casos raros, diseño con Tailwind para pantalla proyectada).

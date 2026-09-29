@@ -36,7 +36,18 @@ async function cargar(id) {
   const [[carrera]] = await pool.query('SELECT * FROM carreras WHERE id = ?', [id]);
   if (!carrera) throw new HttpError(404, 'Carrera no encontrada');
   const [competidores] = await pool.query(
-    'SELECT id, nombre, numero, estado FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
+    'SELECT id, nombre, numero, estado, tiempo_ms FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
+  // Puestos por tiempo de llegada. Tiempos iguales a la centésima comparten puesto (el desempate llega en la etapa 5).
+  let puesto = 0;
+  let anterior = null;
+  competidores.filter((c) => c.estado === 'llego').sort((a, b) => a.tiempo_ms - b.tiempo_ms).forEach((c, i) => {
+    const centesima = Math.floor(c.tiempo_ms / 10);
+    if (centesima !== anterior) {
+      puesto = i + 1;
+      anterior = centesima;
+    }
+    c.posicion = puesto;
+  });
   return { carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now() };
 }
 
@@ -109,6 +120,45 @@ app.post('/api/carreras/:id/largada', ah(async (req, res) => {
     "UPDATE carreras SET estado = 'en_curso', inicio_ms = ? WHERE id = ? AND estado = 'configuracion' AND (SELECT COUNT(*) FROM competidores WHERE carrera_id = ?) = cupo",
     [Date.now(), id, id]);
   if (!r.affectedRows) throw new HttpError(409, 'No se pudo largar: revisá la lista de competidores');
+  res.json(await cargar(id));
+}));
+
+// ---- Etapa 4: llegadas e incidentes ----
+// La carrera termina sola cuando ya nadie sigue en pista.
+async function cerrarSiTermino(carreraId) {
+  const [[fila]] = await pool.query(
+    "SELECT COUNT(*) AS n FROM competidores WHERE carrera_id = ? AND estado = 'en_carrera'", [carreraId]);
+  if (Number(fila.n) === 0) {
+    await pool.query(
+      "UPDATE carreras SET estado = 'finalizada', fin_ms = ? WHERE id = ? AND estado = 'en_curso'",
+      [Date.now(), carreraId]);
+  }
+}
+
+app.post('/api/carreras/:id/competidores/:cid/llegada', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { carrera } = await cargar(id);
+  if (carrera.estado !== 'en_curso') throw new HttpError(409, 'La carrera no está en curso');
+  const tiempo = Date.now() - carrera.inicio_ms; // el reloj del servidor es la referencia
+  const [r] = await pool.query(
+    "UPDATE competidores SET estado = 'llego', tiempo_ms = ? WHERE id = ? AND carrera_id = ? AND estado = 'en_carrera'",
+    [tiempo, cid, id]);
+  if (!r.affectedRows) throw new HttpError(409, 'Ese competidor ya tiene su llegada o incidente registrado');
+  await cerrarSiTermino(id);
+  res.json(await cargar(id));
+}));
+
+app.post('/api/carreras/:id/competidores/:cid/incidente', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { carrera } = await cargar(id);
+  if (carrera.estado === 'configuracion') throw new HttpError(409, 'La carrera todavía no largó');
+  const [r] = await pool.query(
+    "UPDATE competidores SET estado = 'incidente', tiempo_ms = NULL WHERE id = ? AND carrera_id = ? AND eliminado = 0 AND estado <> 'incidente'",
+    [cid, id]);
+  if (!r.affectedRows) throw new HttpError(409, 'Ese competidor ya tiene un incidente registrado');
+  if (carrera.estado === 'en_curso') await cerrarSiTermino(id);
   res.json(await cargar(id));
 }));
 

@@ -64,8 +64,14 @@
     </div>
 
     <div id="cronometro" class="mt-6 hidden rounded-md bg-asfalto px-6 py-6 text-white">
-      <p class="font-semibold text-white/70">Carrera en curso</p>
+      <p id="estado-carrera" class="font-semibold text-white/70">Carrera en curso</p>
       <p id="reloj" class="text-7xl tabular-nums sm:text-8xl" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">00:00.00</p>
+    </div>
+
+    <div id="resultados" class="hidden">
+      <div id="b-pista" class="mt-8"><h3 class="text-xl font-bold">En pista</h3><ul id="l-pista" class="mt-2 space-y-2"></ul></div>
+      <div id="b-pos" class="mt-8"><h3 class="text-xl font-bold">Posiciones</h3><ul id="l-pos" class="mt-2 space-y-2"></ul></div>
+      <div id="b-inc" class="mt-8"><h3 class="text-xl font-bold">Incidentes</h3><ul id="l-inc" class="mt-2 space-y-2"></ul></div>
     </div>
 
     <ul id="lista" class="mt-6 space-y-2"></ul>
@@ -113,18 +119,30 @@ function dibujar(estado) {
   $('registro').classList.remove('hidden');
   $('titulo').textContent = carrera.nombre;
   $('contador').textContent = competidores.length + ' de ' + carrera.cupo;
-  const enCurso = carrera.estado === 'en_curso';
+  const enConfig = carrera.estado === 'configuracion';
   const faltan = carrera.cupo - competidores.length;
-  $('form-comp').classList.toggle('hidden', enCurso);
+  $('form-comp').classList.toggle('hidden', !enConfig);
   Array.from($('form-comp').elements).forEach((el) => { el.disabled = completa; });
-  $('largada').classList.toggle('hidden', enCurso);
+  $('largada').classList.toggle('hidden', !enConfig);
+  $('lista').classList.toggle('hidden', !enConfig);
   $('largar').disabled = !completa;
   $('faltan').textContent = completa
     ? 'Lista completa. Ya se puede largar.'
     : 'Faltan ' + faltan + (faltan === 1 ? ' competidor' : ' competidores') + ' para poder largar.';
-  $('cronometro').classList.toggle('hidden', !enCurso);
-  if (enCurso) iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
-  else detenerReloj();
+  $('cronometro').classList.toggle('hidden', enConfig);
+  $('resultados').classList.toggle('hidden', enConfig);
+  if (carrera.estado === 'en_curso') {
+    $('estado-carrera').textContent = 'Carrera en curso';
+    iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
+  } else {
+    detenerReloj();
+    if (!enConfig) {
+      // El circuito se detuvo: el reloj queda con el tiempo total de la carrera.
+      $('estado-carrera').textContent = 'Carrera terminada';
+      $('reloj').textContent = formato(carrera.fin_ms - carrera.inicio_ms);
+    }
+  }
+  if (!enConfig) dibujarResultados(competidores);
 
   const lista = $('lista');
   lista.replaceChildren();
@@ -148,7 +166,7 @@ function dibujar(estado) {
     quitar.textContent = 'Quitar';
     quitar.setAttribute('aria-label', 'Quitar a ' + c.nombre);
     quitar.onclick = () => accion(async () => dibujar(await api('DELETE', '/api/carreras/' + carreraId + '/competidores/' + c.id)));
-    lista.appendChild(fila('border-2 border-asfalto bg-white', enCurso ? [placa, nombre] : [placa, nombre, quitar]));
+    lista.appendChild(fila('border-2 border-asfalto bg-white', [placa, nombre, quitar]));
   }
 }
 
@@ -171,6 +189,62 @@ function iniciarReloj(inicio, desfase) {
     relojId = requestAnimationFrame(pintar);
   };
   pintar();
+}
+
+// ---- Llegadas, incidentes y posiciones ----
+const marcar = (id, tipo) => accion(async () =>
+  dibujar(await api('POST', '/api/carreras/' + carreraId + '/competidores/' + id + '/' + tipo)));
+
+function etiqueta(clases, texto) {
+  const s = document.createElement('span');
+  s.className = clases;
+  s.textContent = texto;
+  return s;
+}
+
+// alClick tiene que devolver una promesa; el botón queda deshabilitado mientras tanto (evita el doble clic).
+function boton(texto, clases, alClick) {
+  const b = document.createElement('button');
+  b.className = clases;
+  b.textContent = texto;
+  b.onclick = () => { b.disabled = true; alClick().finally(() => { b.disabled = false; }); };
+  return b;
+}
+
+function llenar(bloque, items, hacerFila) {
+  $('b-' + bloque).classList.toggle('hidden', items.length === 0);
+  const ul = $('l-' + bloque);
+  ul.replaceChildren();
+  items.forEach((c) => ul.appendChild(hacerFila(c)));
+}
+
+function dibujarResultados(competidores) {
+  const placa = (c) => etiqueta('placa', c.numero);
+  const nombre = (c) => etiqueta('flex-1 text-xl font-semibold', c.nombre);
+  const enPista = competidores.filter((c) => c.estado === 'en_carrera');
+  const llegaron = competidores.filter((c) => c.estado === 'llego').sort((a, b) => a.tiempo_ms - b.tiempo_ms);
+  const incidentes = competidores.filter((c) => c.estado === 'incidente');
+  const claseIncidente = 'rounded-md border-2 border-bandera px-4 py-2 text-lg font-bold text-bandera focus:outline-none focus:ring-4 focus:ring-placa disabled:opacity-40';
+
+  llenar('pista', enPista, (c) => fila('border-2 border-asfalto bg-white', [
+    placa(c), nombre(c),
+    boton('Llegó', 'boton', () => marcar(c.id, 'llegada')),
+    boton('Incidente', claseIncidente, () => marcar(c.id, 'incidente')),
+  ]));
+
+  llenar('pos', llegaron, (c) => fila('border-2 border-asfalto bg-white', [
+    etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
+    placa(c), nombre(c),
+    etiqueta('text-2xl font-bold tabular-nums', formato(c.tiempo_ms)),
+    boton('Incidente', 'font-semibold text-bandera underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
+      if (!confirm('¿Marcar incidente a ' + c.nombre + '? Se borra su tiempo.')) return Promise.resolve();
+      return marcar(c.id, 'incidente');
+    }),
+  ]));
+
+  llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
+    placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
+  ]));
 }
 
 $('largar').onclick = () => accion(async () => {
