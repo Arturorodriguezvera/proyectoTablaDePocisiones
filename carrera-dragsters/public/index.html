@@ -69,6 +69,12 @@
     </div>
 
     <div id="resultados" class="hidden">
+      <div id="b-des" class="mt-8 hidden rounded-md border-2 border-bandera bg-white p-4">
+        <h3 id="des-titulo" class="text-xl font-bold"></h3>
+        <p id="des-texto" class="mt-1"></p>
+        <button id="des-largar" class="boton !bg-bandera mt-3 hidden">Largar desempate</button>
+        <ul id="l-des" class="mt-3 space-y-2"></ul>
+      </div>
       <div id="b-pista" class="mt-8"><h3 class="text-xl font-bold">En pista</h3><ul id="l-pista" class="mt-2 space-y-2"></ul></div>
       <div id="b-pos" class="mt-8"><h3 class="text-xl font-bold">Posiciones</h3><ul id="l-pos" class="mt-2 space-y-2"></ul></div>
       <div id="b-inc" class="mt-8"><h3 class="text-xl font-bold">Incidentes</h3><ul id="l-inc" class="mt-2 space-y-2"></ul></div>
@@ -134,15 +140,20 @@ function dibujar(estado) {
   if (carrera.estado === 'en_curso') {
     $('estado-carrera').textContent = 'Carrera en curso';
     iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
+  } else if (estado.desempate.estado === 'en_curso') {
+    // Durante el desempate el reloj cuenta el desempate.
+    const des = estado.desempate;
+    $('estado-carrera').textContent = 'Desempate por el ' + des.posicion + '.º puesto, intento ' + des.ronda + ' de ' + des.maximo;
+    iniciarReloj(des.inicio_ms, estado.ahora_ms - Date.now());
   } else {
     detenerReloj();
     if (!enConfig) {
       // El circuito se detuvo: el reloj queda con el tiempo total de la carrera.
-      $('estado-carrera').textContent = 'Carrera terminada';
+      $('estado-carrera').textContent = estado.desempate.estado ? 'Carrera terminada: hay un empate' : 'Carrera terminada';
       $('reloj').textContent = formato(carrera.fin_ms - carrera.inicio_ms);
     }
   }
-  if (!enConfig) dibujarResultados(competidores);
+  if (!enConfig) dibujarResultados(estado);
 
   const lista = $('lista');
   lista.replaceChildren();
@@ -218,11 +229,51 @@ function llenar(bloque, items, hacerFila) {
   items.forEach((c) => ul.appendChild(hacerFila(c)));
 }
 
-function dibujarResultados(competidores) {
+const marcarDes = (id, tipo) => accion(async () =>
+  dibujar(await api('POST', '/api/carreras/' + carreraId + '/desempate/' + id + '/' + tipo)));
+
+function dibujarDesempate(estado) {
+  const des = estado.desempate;
+  $('b-des').classList.toggle('hidden', !des.estado);
+  if (!des.estado) return;
+  $('des-titulo').textContent = 'Empate por el ' + des.posicion + '.º puesto: desempate ' + des.ronda + ' de ' + des.maximo;
+  $('des-texto').textContent = des.estado === 'iniciar'
+    ? 'Corren de nuevo solo los empatados. Cuando estén listos, largá el desempate.'
+    : 'Desempate en curso: marcá la llegada de cada uno.';
+  $('des-largar').classList.toggle('hidden', des.estado !== 'iniciar');
+  $('des-largar').disabled = false;
+  const ul = $('l-des');
+  ul.replaceChildren();
+  des.participantes.forEach((c) => {
+    const acciones = des.estado === 'en_curso' && c.estado === 'en_carrera'
+      ? [
+        boton('Llegó', 'boton', () => marcarDes(c.id, 'llegada')),
+        boton('Incidente', 'rounded-md border-2 border-bandera px-4 py-2 text-lg font-bold text-bandera focus:outline-none focus:ring-4 focus:ring-placa disabled:opacity-40', () => marcarDes(c.id, 'incidente')),
+      ]
+      : [etiqueta('text-2xl font-bold tabular-nums', c.estado === 'llego' ? formato(c.tiempo_ms) : c.estado === 'incidente' ? 'Incidente' : '')];
+    ul.appendChild(fila('border-2 border-asfalto bg-white',
+      [etiqueta('placa', c.numero), etiqueta('flex-1 text-xl font-semibold', c.nombre)].concat(acciones)));
+  });
+}
+
+$('des-largar').onclick = () => accion(async () => {
+  $('des-largar').disabled = true; // evita el doble clic
+  try {
+    dibujar(await api('POST', '/api/carreras/' + carreraId + '/desempate/iniciar'));
+  } catch (e) {
+    dibujar(await api('GET', '/api/carreras/' + carreraId));
+    throw e;
+  }
+});
+
+function dibujarResultados(estado) {
+  const competidores = estado.competidores;
+  const bloqueado = estado.hay_desempates || estado.desempate.estado; // ya no se editan incidentes de la carrera
   const placa = (c) => etiqueta('placa', c.numero);
   const nombre = (c) => etiqueta('flex-1 text-xl font-semibold', c.nombre);
   const enPista = competidores.filter((c) => c.estado === 'en_carrera');
-  const llegaron = competidores.filter((c) => c.estado === 'llego').sort((a, b) => a.tiempo_ms - b.tiempo_ms);
+  const llegaron = competidores.filter((c) => c.estado === 'llego')
+    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero);
   const incidentes = competidores.filter((c) => c.estado === 'incidente');
   const claseIncidente = 'rounded-md border-2 border-bandera px-4 py-2 text-lg font-bold text-bandera focus:outline-none focus:ring-4 focus:ring-placa disabled:opacity-40';
 
@@ -241,6 +292,9 @@ function dibujarResultados(competidores) {
       return marcar(c.id, 'incidente');
     }),
   ]));
+
+  if (bloqueado) $('l-pos').querySelectorAll('button').forEach((b) => b.remove());
+  dibujarDesempate(estado);
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
     placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),

@@ -23,7 +23,14 @@
   - Rutas nuevas: `POST /api/carreras/:id/competidores/:cid/llegada` y `.../incidente`. No cambia la base: no hace falta volver a cargar `schema.sql`.
   - Los tiempos iguales a la centésima comparten puesto; el desempate llega en la etapa 5.
   - Falta probarla en el navegador: carrera con cupo 3, un "Llegó", un "Incidente", un "Llegó", y ver que se frena el reloj.
-- [ ] Etapa 5: Empates y desempate (top 3, hasta 3 intentos). Requiere sumar las tablas `desempates` y `desempate_participantes`.
+- [x] **Etapa 5: Empates y desempate.** Cuando la carrera termina y hay empate en el 1.º, 2.º o 3.º puesto, aparece un panel "Empate por el N.º puesto" con el botón "Largar desempate". Corren solo los empatados, con el reloj del desempate en pantalla, y se marca "Llegó" o "Incidente" a cada uno.
+  - **Cambia la base:** hay que correr `database/etapa-5.sql` una vez (crea `desempates` y `desempate_participantes`). `schema.sql` ya las trae para instalaciones nuevas.
+  - Lógica en `src/posiciones.js`: máximo 3 intentos por empate; si siguen empatados, comparten el puesto. Si en un desempate quedan nuevos empates dentro del top 3, se desempatan también (de a un grupo por vez). Los que tienen incidente en un desempate quedan detrás de los que llegaron.
+  - Empates en el 4.º puesto o más abajo solo comparten puesto, sin desempate.
+  - Después de largar un desempate ya no se pueden marcar incidentes de la carrera principal.
+  - Rutas nuevas: `POST /api/carreras/:id/desempate/iniciar`, `.../desempate/:cid/llegada` y `.../desempate/:cid/incidente`.
+  - Sin la prueba automática todavía: para probar sin esperar un empate real, usar `database/probar-empate.sql` (fuerza dos tiempos iguales en la última carrera) y recargar la página.
+  - Falta probarla en el navegador: empate en el 1.º, empate en el 3.º, desempate que vuelve a empatar (hasta el 3.er intento) y desempate con incidente.
 - [ ] Etapa 6: Ganador y gestión final (zoom/resaltado del 1.er puesto, eliminación manual).
 - [ ] Etapa 7: Pruebas y pulido (casos raros, diseño con Tailwind para pantalla proyectada).
 - [ ] Más adelante: sensor de llegada.

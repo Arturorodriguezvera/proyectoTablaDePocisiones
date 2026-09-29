@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const pool = require('./db');
+const { calcular, MAX_RONDAS } = require('./posiciones');
 
 const app = express();
 app.use(express.json());
@@ -37,18 +38,36 @@ async function cargar(id) {
   if (!carrera) throw new HttpError(404, 'Carrera no encontrada');
   const [competidores] = await pool.query(
     'SELECT id, nombre, numero, estado, tiempo_ms FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
-  // Puestos por tiempo de llegada. Tiempos iguales a la centésima comparten puesto (el desempate llega en la etapa 5).
-  let puesto = 0;
-  let anterior = null;
-  competidores.filter((c) => c.estado === 'llego').sort((a, b) => a.tiempo_ms - b.tiempo_ms).forEach((c, i) => {
-    const centesima = Math.floor(c.tiempo_ms / 10);
-    if (centesima !== anterior) {
-      puesto = i + 1;
-      anterior = centesima;
-    }
-    c.posicion = puesto;
-  });
-  return { carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now() };
+  // Puestos, empates y desempates (ver src/posiciones.js).
+  const [desempates] = await pool.query('SELECT * FROM desempates WHERE carrera_id = ?', [id]);
+  let partes = [];
+  if (desempates.length) {
+    [partes] = await pool.query(
+      'SELECT * FROM desempate_participantes WHERE desempate_id IN (?)', [desempates.map((d) => d.id)]);
+  }
+  const { puestos, pendiente } = calcular(carrera, competidores, desempates, partes);
+  competidores.forEach((c) => { if (puestos.has(c.id)) c.posicion = puestos.get(c.id); });
+
+  const desempate = { estado: null, maximo: MAX_RONDAS };
+  if (pendiente) {
+    const persona = (c, extra) => ({ id: c.id, nombre: c.nombre, numero: c.numero, ...extra });
+    const filas = pendiente.desempate
+      ? partes.filter((x) => x.desempate_id === pendiente.desempate.id)
+      : null;
+    Object.assign(desempate, {
+      estado: pendiente.estado, // 'iniciar' (falta largar) o 'en_curso'
+      posicion: pendiente.posicion,
+      ronda: pendiente.ronda,
+      inicio_ms: pendiente.desempate ? pendiente.desempate.inicio_ms : null,
+      participantes: filas
+        ? filas.map((x) => persona(competidores.find((c) => c.id === x.competidor_id), { estado: x.estado, tiempo_ms: x.tiempo_ms }))
+        : competidores.filter((c) => pendiente.ids.includes(c.id)).map((c) => persona(c, { estado: 'en_carrera', tiempo_ms: null })),
+    });
+  }
+  return {
+    carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now(),
+    desempate, hay_desempates: desempates.length > 0,
+  };
 }
 
 app.post('/api/carreras', ah(async (req, res) => {
@@ -152,8 +171,11 @@ app.post('/api/carreras/:id/competidores/:cid/llegada', ah(async (req, res) => {
 app.post('/api/carreras/:id/competidores/:cid/incidente', ah(async (req, res) => {
   const id = entero(req.params.id, 'Id');
   const cid = entero(req.params.cid, 'Competidor');
-  const { carrera } = await cargar(id);
+  const { carrera, desempate, hay_desempates: hayDesempates } = await cargar(id);
   if (carrera.estado === 'configuracion') throw new HttpError(409, 'La carrera todavía no largó');
+  if (hayDesempates || desempate.estado) {
+    throw new HttpError(409, 'Hay un desempate en marcha: ya no se pueden marcar incidentes de la carrera');
+  }
   const [r] = await pool.query(
     "UPDATE competidores SET estado = 'incidente', tiempo_ms = NULL WHERE id = ? AND carrera_id = ? AND eliminado = 0 AND estado <> 'incidente'",
     [cid, id]);
@@ -161,6 +183,48 @@ app.post('/api/carreras/:id/competidores/:cid/incidente', ah(async (req, res) =>
   if (carrera.estado === 'en_curso') await cerrarSiTermino(id);
   res.json(await cargar(id));
 }));
+
+// ---- Etapa 5: desempate ----
+app.post('/api/carreras/:id/desempate/iniciar', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const { desempate } = await cargar(id);
+  if (desempate.estado !== 'iniciar') throw new HttpError(409, 'No hay ningún desempate para largar');
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [d] = await conn.query(
+      'INSERT INTO desempates (carrera_id, posicion, ronda, inicio_ms) VALUES (?, ?, ?, ?)',
+      [id, desempate.posicion, desempate.ronda, Date.now()]);
+    await conn.query(
+      'INSERT INTO desempate_participantes (desempate_id, competidor_id) VALUES ?',
+      [desempate.participantes.map((c) => [d.insertId, c.id])]);
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    if (e.code === 'ER_DUP_ENTRY') throw new HttpError(409, 'Ese desempate ya largó');
+    throw e;
+  } finally {
+    conn.release();
+  }
+  res.json(await cargar(id));
+}));
+
+function marcarDesempate(nuevoEstado) {
+  return ah(async (req, res) => {
+    const id = entero(req.params.id, 'Id');
+    const cid = entero(req.params.cid, 'Competidor');
+    const { desempate } = await cargar(id);
+    if (desempate.estado !== 'en_curso') throw new HttpError(409, 'No hay un desempate en curso');
+    const tiempo = nuevoEstado === 'llego' ? Date.now() - desempate.inicio_ms : null;
+    const [r] = await pool.query(
+      "UPDATE desempate_participantes dp JOIN desempates d ON d.id = dp.desempate_id SET dp.estado = ?, dp.tiempo_ms = ? WHERE d.carrera_id = ? AND d.posicion = ? AND d.ronda = ? AND dp.competidor_id = ? AND dp.estado = 'en_carrera'",
+      [nuevoEstado, tiempo, id, desempate.posicion, desempate.ronda, cid]);
+    if (!r.affectedRows) throw new HttpError(409, 'Ese competidor no corre este desempate o ya tiene su resultado');
+    res.json(await cargar(id));
+  });
+}
+app.post('/api/carreras/:id/desempate/:cid/llegada', marcarDesempate('llego'));
+app.post('/api/carreras/:id/desempate/:cid/incidente', marcarDesempate('incidente'));
 
 app.use((err, req, res, next) => {
   if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
