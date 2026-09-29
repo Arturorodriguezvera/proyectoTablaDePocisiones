@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carreras de dragsters</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    asfalto: '#10233B', hormigon: '#E6E8E5', bandera: '#C8242B', placa: '#F5C400'
+  } } } };
+</script>
+<style type="text/tailwindcss">
+  @layer components {
+    .campo { @apply mt-1 block w-full rounded-md border-2 border-asfalto/30 bg-white px-3 py-2 text-lg text-asfalto focus:border-asfalto focus:outline-none focus:ring-4 focus:ring-placa disabled:bg-hormigon disabled:text-asfalto/40; }
+    .boton { @apply rounded-md bg-asfalto px-5 py-2 text-lg font-bold text-white focus:outline-none focus:ring-4 focus:ring-placa disabled:cursor-not-allowed disabled:opacity-40; }
+    .placa { @apply flex h-12 w-16 shrink-0 items-center justify-center rounded-md border-2 border-asfalto bg-placa text-3xl text-asfalto; font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  }
+</style>
+</head>
+<body class="min-h-screen bg-hormigon text-asfalto">
+<header class="bg-asfalto text-white">
+  <div class="mx-auto max-w-3xl px-4 py-6">
+    <h1 class="text-4xl font-black italic tracking-tight" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">Carreras de dragsters</h1>
+  </div>
+  <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
+</header>
+
+<main class="mx-auto max-w-3xl px-4 py-8">
+  <p id="error" role="alert" class="mb-6 hidden rounded-md border-2 border-bandera bg-white px-4 py-3 font-semibold text-bandera"></p>
+
+  <section id="config">
+    <h2 class="text-2xl font-bold">Configurar la carrera</h2>
+    <form id="form-config" class="mt-4 grid gap-4 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
+      <label class="block font-semibold">Nombre de la carrera
+        <input id="c-nombre" class="campo" maxlength="100" required placeholder="Final de 3.º año">
+      </label>
+      <label class="block font-semibold">Cupo
+        <input id="c-cupo" class="campo" type="number" min="2" max="50" required inputmode="numeric" placeholder="8">
+      </label>
+      <button class="boton">Crear carrera</button>
+    </form>
+  </section>
+
+  <section id="registro" class="hidden">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <h2 id="titulo" class="text-2xl font-bold"></h2>
+      <p class="text-lg font-semibold"><span id="contador"></span> competidores</p>
+    </div>
+
+    <form id="form-comp" class="mt-4 grid gap-4 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
+      <label class="block font-semibold">Nombre
+        <input id="k-nombre" class="campo" maxlength="80" required>
+      </label>
+      <label class="block font-semibold">Número
+        <input id="k-numero" class="campo" type="number" min="1" max="9999" required inputmode="numeric">
+      </label>
+      <button class="boton">Agregar competidor</button>
+    </form>
+
+    <p id="completa" class="mt-4 hidden rounded-md bg-asfalto px-4 py-3 font-semibold text-white">Lista completa: todos los lugares están cubiertos.</p>
+
+    <ul id="lista" class="mt-6 space-y-2"></ul>
+
+    <button id="nueva" class="mt-8 font-semibold underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Empezar una carrera nueva</button>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let carreraId = null;
+try { carreraId = Number(localStorage.getItem('carreraId')) || null; } catch (e) { /* sin almacenamiento */ }
+
+async function api(metodo, url, cuerpo) {
+  const r = await fetch(url, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json' },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(datos.error || 'No se pudo completar la acción. Probá de nuevo.');
+  return datos;
+}
+
+function mostrarError(msg) {
+  $('error').textContent = msg || '';
+  $('error').classList.toggle('hidden', !msg);
+}
+
+async function accion(fn) {
+  mostrarError('');
+  try { await fn(); } catch (e) { mostrarError(e.message); }
+}
+
+function fila(clases, hijos) {
+  const li = document.createElement('li');
+  li.className = 'flex items-center gap-4 rounded-md px-3 py-2 ' + clases;
+  hijos.forEach((h) => li.appendChild(h));
+  return li;
+}
+
+function dibujar(estado) {
+  const { carrera, competidores, completa } = estado;
+  $('config').classList.add('hidden');
+  $('registro').classList.remove('hidden');
+  $('titulo').textContent = carrera.nombre;
+  $('contador').textContent = competidores.length + ' de ' + carrera.cupo;
+  $('completa').classList.toggle('hidden', !completa);
+  Array.from($('form-comp').elements).forEach((el) => { el.disabled = completa; });
+
+  const lista = $('lista');
+  lista.replaceChildren();
+  for (let i = 0; i < carrera.cupo; i++) {
+    const c = competidores[i];
+    if (!c) {
+      const libre = document.createElement('span');
+      libre.className = 'text-asfalto/50';
+      libre.textContent = 'Lugar libre';
+      lista.appendChild(fila('h-[3.75rem] border-2 border-dashed border-asfalto/30', [libre]));
+      continue;
+    }
+    const placa = document.createElement('span');
+    placa.className = 'placa';
+    placa.textContent = c.numero;
+    const nombre = document.createElement('span');
+    nombre.className = 'flex-1 text-xl font-semibold';
+    nombre.textContent = c.nombre;
+    const quitar = document.createElement('button');
+    quitar.className = 'font-semibold text-bandera underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa';
+    quitar.textContent = 'Quitar';
+    quitar.setAttribute('aria-label', 'Quitar a ' + c.nombre);
+    quitar.onclick = () => accion(async () => dibujar(await api('DELETE', '/api/carreras/' + carreraId + '/competidores/' + c.id)));
+    lista.appendChild(fila('border-2 border-asfalto bg-white', [placa, nombre, quitar]));
+  }
+}
+
+function mostrarConfig() {
+  $('registro').classList.add('hidden');
+  $('config').classList.remove('hidden');
+  $('c-nombre').focus();
+}
+
+function guardarId(id) {
+  carreraId = id;
+  try { id ? localStorage.setItem('carreraId', id) : localStorage.removeItem('carreraId'); } catch (e) { /* sin almacenamiento */ }
+}
+
+$('form-config').onsubmit = (ev) => {
+  ev.preventDefault();
+  accion(async () => {
+    const estado = await api('POST', '/api/carreras', { nombre: $('c-nombre').value, cupo: $('c-cupo').value });
+    guardarId(estado.carrera.id);
+    dibujar(estado);
+    $('k-nombre').focus();
+  });
+};
+
+$('form-comp').onsubmit = (ev) => {
+  ev.preventDefault();
+  accion(async () => {
+    dibujar(await api('POST', '/api/carreras/' + carreraId + '/competidores', { nombre: $('k-nombre').value, numero: $('k-numero').value }));
+    $('form-comp').reset();
+    $('k-nombre').focus();
+  });
+};
+
+$('nueva').onclick = () => {
+  if (!confirm('¿Empezar una carrera nueva? Vas a dejar de trabajar con la carrera actual.')) return;
+  mostrarError('');
+  guardarId(null);
+  $('form-config').reset();
+  mostrarConfig();
+};
+
+if (carreraId) {
+  api('GET', '/api/carreras/' + carreraId).then(dibujar).catch(() => guardarId(null));
+}
+</script>
+</body>
+</html>
