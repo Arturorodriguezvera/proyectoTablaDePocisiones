@@ -37,7 +37,7 @@ async function cargar(id) {
   if (!carrera) throw new HttpError(404, 'Carrera no encontrada');
   const [competidores] = await pool.query(
     'SELECT id, nombre, numero, estado FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
-  return { carrera, competidores, completa: competidores.length >= carrera.cupo };
+  return { carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now() };
 }
 
 app.post('/api/carreras', ah(async (req, res) => {
@@ -94,6 +94,21 @@ app.delete('/api/carreras/:id/competidores/:cid', ah(async (req, res) => {
   const { carrera } = await cargar(id);
   if (carrera.estado !== 'configuracion') throw new HttpError(409, 'La carrera ya largó: no se pueden quitar competidores');
   await pool.query('DELETE FROM competidores WHERE id = ? AND carrera_id = ?', [cid, id]);
+  res.json(await cargar(id));
+}));
+
+// ---- Etapa 3: largada ----
+app.post('/api/carreras/:id/largada', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const { carrera, competidores } = await cargar(id);
+  if (carrera.estado !== 'configuracion') throw new HttpError(409, 'La carrera ya largó');
+  const faltan = carrera.cupo - competidores.length;
+  if (faltan > 0) throw new HttpError(409, 'Faltan ' + faltan + ' competidores para poder largar');
+  // El reloj del servidor es la referencia de todos los tiempos.
+  const [r] = await pool.query(
+    "UPDATE carreras SET estado = 'en_curso', inicio_ms = ? WHERE id = ? AND estado = 'configuracion' AND (SELECT COUNT(*) FROM competidores WHERE carrera_id = ?) = cupo",
+    [Date.now(), id, id]);
+  if (!r.affectedRows) throw new HttpError(409, 'No se pudo largar: revisá la lista de competidores');
   res.json(await cargar(id));
 }));
 

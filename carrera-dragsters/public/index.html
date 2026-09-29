@@ -58,7 +58,15 @@
       <button class="boton">Agregar competidor</button>
     </form>
 
-    <p id="completa" class="mt-4 hidden rounded-md bg-asfalto px-4 py-3 font-semibold text-white">Lista completa: todos los lugares están cubiertos.</p>
+    <div id="largada" class="mt-4 flex flex-wrap items-center gap-4">
+      <button id="largar" class="boton !bg-bandera px-8 text-2xl">Largar</button>
+      <p id="faltan" class="font-semibold"></p>
+    </div>
+
+    <div id="cronometro" class="mt-6 hidden rounded-md bg-asfalto px-6 py-6 text-white">
+      <p class="font-semibold text-white/70">Carrera en curso</p>
+      <p id="reloj" class="text-7xl tabular-nums sm:text-8xl" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">00:00.00</p>
+    </div>
 
     <ul id="lista" class="mt-6 space-y-2"></ul>
 
@@ -105,8 +113,18 @@ function dibujar(estado) {
   $('registro').classList.remove('hidden');
   $('titulo').textContent = carrera.nombre;
   $('contador').textContent = competidores.length + ' de ' + carrera.cupo;
-  $('completa').classList.toggle('hidden', !completa);
+  const enCurso = carrera.estado === 'en_curso';
+  const faltan = carrera.cupo - competidores.length;
+  $('form-comp').classList.toggle('hidden', enCurso);
   Array.from($('form-comp').elements).forEach((el) => { el.disabled = completa; });
+  $('largada').classList.toggle('hidden', enCurso);
+  $('largar').disabled = !completa;
+  $('faltan').textContent = completa
+    ? 'Lista completa. Ya se puede largar.'
+    : 'Faltan ' + faltan + (faltan === 1 ? ' competidor' : ' competidores') + ' para poder largar.';
+  $('cronometro').classList.toggle('hidden', !enCurso);
+  if (enCurso) iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
+  else detenerReloj();
 
   const lista = $('lista');
   lista.replaceChildren();
@@ -130,11 +148,43 @@ function dibujar(estado) {
     quitar.textContent = 'Quitar';
     quitar.setAttribute('aria-label', 'Quitar a ' + c.nombre);
     quitar.onclick = () => accion(async () => dibujar(await api('DELETE', '/api/carreras/' + carreraId + '/competidores/' + c.id)));
-    lista.appendChild(fila('border-2 border-asfalto bg-white', [placa, nombre, quitar]));
+    lista.appendChild(fila('border-2 border-asfalto bg-white', enCurso ? [placa, nombre] : [placa, nombre, quitar]));
   }
 }
 
+// Cronómetro: el tiempo sale del reloj del servidor, así sigue bien aunque se recargue la página.
+let relojId = null;
+function formato(ms) {
+  const cent = Math.floor(ms / 10) % 100;
+  const seg = Math.floor(ms / 1000) % 60;
+  const min = Math.floor(ms / 60000);
+  return String(min).padStart(2, '0') + ':' + String(seg).padStart(2, '0') + '.' + String(cent).padStart(2, '0');
+}
+function detenerReloj() {
+  if (relojId) cancelAnimationFrame(relojId);
+  relojId = null;
+}
+function iniciarReloj(inicio, desfase) {
+  detenerReloj();
+  const pintar = () => {
+    $('reloj').textContent = formato(Math.max(0, Date.now() + desfase - inicio));
+    relojId = requestAnimationFrame(pintar);
+  };
+  pintar();
+}
+
+$('largar').onclick = () => accion(async () => {
+  $('largar').disabled = true; // evita el doble clic
+  try {
+    dibujar(await api('POST', '/api/carreras/' + carreraId + '/largada'));
+  } catch (e) {
+    dibujar(await api('GET', '/api/carreras/' + carreraId));
+    throw e;
+  }
+});
+
 function mostrarConfig() {
+  detenerReloj();
   $('registro').classList.add('hidden');
   $('config').classList.remove('hidden');
   $('c-nombre').focus();

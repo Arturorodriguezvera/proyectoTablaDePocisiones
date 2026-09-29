@@ -12,7 +12,11 @@
 ## Etapas
 - [x] **Etapa 1: Base y estructura.** Proyecto Node + Express, MySQL, tablas `carreras` y `competidores`.
 - [x] **Etapa 2: Configuración y registro.** Pantalla en `http://localhost:3000` para definir el cupo y cargar competidores (nombre + número), sin números repetidos y sin pasar el cupo. Se puede quitar un competidor antes de largar. La carrera en curso se recuerda al recargar la página.
-- [ ] Etapa 3: Largada y cronómetro (botón solo con cupo completo, cronómetro global).
+- [x] **Etapa 3: Largada y cronómetro.** Botón "Largar" (solo con el cupo completo) y cronómetro global en pantalla (minutos:segundos.centésimas). Al largar desaparecen el formulario y los botones "Quitar".
+  - La hora de largada la guarda el servidor (`inicio_ms`) y el cronómetro se calcula con ese dato, así que sigue bien si se recarga la página.
+  - Ruta nueva: `POST /api/carreras/:id/largada`. No cambia la base: no hace falta volver a cargar `schema.sql`.
+  - Todavía no se puede detener la carrera ni marcar llegadas (etapa 4). Para probar de nuevo, usar "Empezar una carrera nueva".
+  - Falta probarla en el navegador: llenar el cupo, largar, recargar la página y ver que el reloj sigue.
 - [ ] Etapa 4: Llegadas, incidentes y tabla en vivo (el circuito se detiene cuando todos llegaron o tienen incidente).
 - [ ] Etapa 5: Empates y desempate (top 3, hasta 3 intentos). Requiere sumar las tablas `desempates` y `desempate_participantes`.
 - [ ] Etapa 6: Ganador y gestión final (zoom/resaltado del 1.er puesto, eliminación manual).
