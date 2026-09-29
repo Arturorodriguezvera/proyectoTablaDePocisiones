@@ -10,6 +10,13 @@
     asfalto: '#10233B', hormigon: '#E6E8E5', bandera: '#C8242B', placa: '#F5C400'
   } } } };
 </script>
+<style>
+  .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
+  .ganador .placa { background: #fff; }
+  .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
+  @keyframes zoom-ganador { 0% { transform: scale(1); } 55% { transform: scale(1.09); } 100% { transform: scale(1.03); } }
+  @media (prefers-reduced-motion: reduce) { .ganador-anim { animation: none; } }
+</style>
 <style type="text/tailwindcss">
   @layer components {
     .campo { @apply mt-1 block w-full rounded-md border-2 border-asfalto/30 bg-white px-3 py-2 text-lg text-asfalto focus:border-asfalto focus:outline-none focus:ring-4 focus:ring-placa disabled:bg-hormigon disabled:text-asfalto/40; }
@@ -266,8 +273,10 @@ $('des-largar').onclick = () => accion(async () => {
   }
 });
 
+let ganadorVisto = null;
+
 function dibujarResultados(estado) {
-  const competidores = estado.competidores;
+  const competidores = estado.competidores.filter((c) => !c.eliminado);
   const bloqueado = estado.hay_desempates || estado.desempate.estado; // ya no se editan incidentes de la carrera
   const placa = (c) => etiqueta('placa', c.numero);
   const nombre = (c) => etiqueta('flex-1 text-xl font-semibold', c.nombre);
@@ -283,22 +292,45 @@ function dibujarResultados(estado) {
     boton('Incidente', claseIncidente, () => marcar(c.id, 'incidente')),
   ]));
 
-  llenar('pos', llegaron, (c) => fila('border-2 border-asfalto bg-white', [
-    etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
-    placa(c), nombre(c),
-    etiqueta('text-2xl font-bold tabular-nums', formato(c.tiempo_ms)),
-    boton('Incidente', 'font-semibold text-bandera underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
-      if (!confirm('¿Marcar incidente a ' + c.nombre + '? Se borra su tiempo.')) return Promise.resolve();
-      return marcar(c.id, 'incidente');
-    }),
-  ]));
+  const hayGanador = estado.ganadores.length > 0;
+  const puedeEliminar = estado.carrera.estado === 'finalizada' && !estado.desempate.estado;
+  const eliminar = (c) => boton('Eliminar', 'font-semibold underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
+    if (!confirm('¿Sacar a ' + c.nombre + ' de la tabla final? No se puede deshacer.')) return Promise.resolve();
+    return marcar(c.id, 'eliminar');
+  });
+  // El zoom sobre el ganador se anima una sola vez; después queda resaltado fijo.
+  const clave = carreraId + ':' + estado.ganadores.join(',');
+  const animar = hayGanador && clave !== ganadorVisto;
+  if (hayGanador) ganadorVisto = clave;
 
-  if (bloqueado) $('l-pos').querySelectorAll('button').forEach((b) => b.remove());
+  llenar('pos', llegaron, (c) => {
+    const gana = estado.ganadores.includes(c.id);
+    const clases = 'border-2 border-asfalto bg-white' +
+      (gana ? ' ganador' + (animar ? ' ganador-anim' : '') : hayGanador ? ' opacity-70' : '');
+    const partes = [
+      etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
+      placa(c), nombre(c),
+      etiqueta('text-2xl font-bold tabular-nums', formato(c.tiempo_ms)),
+    ];
+    if (gana) {
+      partes.push(etiqueta('rounded-md bg-asfalto px-3 py-1 font-bold text-white',
+        estado.ganadores.length > 1 ? 'Empate en 1.º' : 'Ganador'));
+    }
+    if (!bloqueado) {
+      partes.push(boton('Incidente', 'font-semibold text-bandera underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
+        if (!confirm('¿Marcar incidente a ' + c.nombre + '? Se borra su tiempo.')) return Promise.resolve();
+        return marcar(c.id, 'incidente');
+      }));
+    }
+    if (puedeEliminar && !gana) partes.push(eliminar(c));
+    return fila(clases, partes);
+  });
+
   dibujarDesempate(estado);
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
     placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
-  ]));
+  ].concat(puedeEliminar ? [eliminar(c)] : [])));
 }
 
 $('largar').onclick = () => accion(async () => {

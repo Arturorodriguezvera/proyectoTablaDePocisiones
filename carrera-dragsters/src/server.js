@@ -37,7 +37,7 @@ async function cargar(id) {
   const [[carrera]] = await pool.query('SELECT * FROM carreras WHERE id = ?', [id]);
   if (!carrera) throw new HttpError(404, 'Carrera no encontrada');
   const [competidores] = await pool.query(
-    'SELECT id, nombre, numero, estado, tiempo_ms FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
+    'SELECT id, nombre, numero, estado, tiempo_ms, eliminado FROM competidores WHERE carrera_id = ? ORDER BY numero', [id]);
   // Puestos, empates y desempates (ver src/posiciones.js).
   const [desempates] = await pool.query('SELECT * FROM desempates WHERE carrera_id = ?', [id]);
   let partes = [];
@@ -64,9 +64,13 @@ async function cargar(id) {
         : competidores.filter((c) => pendiente.ids.includes(c.id)).map((c) => persona(c, { estado: 'en_carrera', tiempo_ms: null })),
     });
   }
+  // Ganadores: los del 1.er puesto, recién cuando la carrera terminó y no falta ningún desempate.
+  const ganadores = carrera.estado === 'finalizada' && !pendiente
+    ? competidores.filter((c) => c.posicion === 1).map((c) => c.id)
+    : [];
   return {
     carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now(),
-    desempate, hay_desempates: desempates.length > 0,
+    desempate, hay_desempates: desempates.length > 0, ganadores,
   };
 }
 
@@ -225,6 +229,20 @@ function marcarDesempate(nuevoEstado) {
 }
 app.post('/api/carreras/:id/desempate/:cid/llegada', marcarDesempate('llego'));
 app.post('/api/carreras/:id/desempate/:cid/incidente', marcarDesempate('incidente'));
+
+// ---- Etapa 6: eliminación manual (con la carrera terminada y el ganador definido) ----
+app.post('/api/carreras/:id/competidores/:cid/eliminar', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { carrera, desempate, ganadores } = await cargar(id);
+  if (carrera.estado !== 'finalizada') throw new HttpError(409, 'La carrera todavía no terminó');
+  if (desempate.estado) throw new HttpError(409, 'Primero hay que resolver el desempate');
+  if (ganadores.includes(cid)) throw new HttpError(409, 'No se puede eliminar al ganador');
+  const [r] = await pool.query(
+    'UPDATE competidores SET eliminado = 1 WHERE id = ? AND carrera_id = ? AND eliminado = 0', [cid, id]);
+  if (!r.affectedRows) throw new HttpError(404, 'Competidor no encontrado');
+  res.json(await cargar(id));
+}));
 
 app.use((err, req, res, next) => {
   if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });

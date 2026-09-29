@@ -31,7 +31,13 @@
   - Rutas nuevas: `POST /api/carreras/:id/desempate/iniciar`, `.../desempate/:cid/llegada` y `.../desempate/:cid/incidente`.
   - Sin la prueba automática todavía: para probar sin esperar un empate real, usar `database/probar-empate.sql` (fuerza dos tiempos iguales en la última carrera) y recargar la página.
   - Falta probarla en el navegador: empate en el 1.º, empate en el 3.º, desempate que vuelve a empatar (hasta el 3.er intento) y desempate con incidente.
-- [ ] Etapa 6: Ganador y gestión final (zoom/resaltado del 1.er puesto, eliminación manual).
+- [x] **Etapa 6: Ganador y gestión final.** Cuando la carrera terminó y no queda ningún desempate, la ficha del 1.er puesto se resalta en amarillo con un zoom animado (una sola vez) y queda marcada como "Ganador" (o "Empate en 1.º" si siguen empatados tras los 3 intentos). El resto de la tabla se atenúa. Los botones "Eliminar" sacan a un competidor de la tabla final.
+  - No cambia la base: no hace falta correr ningún SQL (la columna `eliminado` ya existía desde la etapa 1).
+  - Ruta nueva: `POST /api/carreras/:id/competidores/:cid/eliminar`. Solo con la carrera terminada y sin desempate pendiente. No deja eliminar al ganador.
+  - Al eliminar a alguien, los demás conservan su puesto (no se corren los números). Supuesto a confirmar.
+  - Se puede eliminar tanto a los que llegaron como a los que tuvieron incidente. Eliminar no se puede deshacer desde la pantalla.
+  - El zoom respeta la opción "reducir movimiento" del sistema (queda el resaltado fijo, sin animación).
+  - Falta probarla en el navegador: terminar una carrera, ver el zoom en el 1.º, eliminar a otro y recargar la página; probar también con un empate final.
 - [ ] Etapa 7: Pruebas y pulido (casos raros, diseño con Tailwind para pantalla proyectada).
 - [ ] Más adelante: sensor de llegada.
 
