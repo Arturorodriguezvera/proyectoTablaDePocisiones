@@ -2,7 +2,7 @@
 
 ## Stack y decisiones
 - Backend: Node.js + Express. Base de datos: MySQL. Frontend: JavaScript + Tailwind CSS.
-- Dos ventanas: control (`/`) y proyector (`/proyector`), sincronizadas por consulta cada 1 segundo (sin WebSockets).
+- Dos ventanas: control (`/`) y proyector (`/proyector`), sincronizadas por consulta cada medio segundo (sin WebSockets).
 - Cronometraje manual: botón "Llegó" por competidor. Más adelante se reemplaza por un sensor sin tocar el resto.
 - Empates: si dos o más competidores empatan en cualquiera de los primeros 3 puestos, corren de nuevo
   solo los empatados (desempate). Máximo 3 intentos; si siguen empatados, todos quedan con ese puesto.
@@ -52,10 +52,26 @@
   - Pruebas: 14 casos en `npm run probar`, todos pasan (se sumaron 2 para deshacer). La pantalla en el navegador sigue sin probarse.
 - [x] **Etapa 9: Vista de proyector. (Hecha: ver notas abajo.)** Página aparte (`/proyector`) con solo el reloj y las posiciones, sin botones, que se actualiza sola (consulta al servidor cada 1 segundo). Se controla desde una ventana y se proyecta la otra. Cambia la decisión de "una sola pantalla". Sin cambios en la base.
   - Página nueva `public/proyector.html` (se abre en `http://localhost:3000/proyector`, también con el enlace "Abrir vista de proyector" de la pantalla de control). Muestra el reloj grande, el estado de la carrera y las posiciones, sin botones. El zoom del ganador se ve una sola vez.
-  - Muestra siempre la **carrera más reciente**: ruta nueva `GET /api/carreras/actual`. Consulta al servidor cada 1 segundo; el reloj se dibuja continuo con la hora del servidor. Si se corta la conexión, avisa "Sin conexión con el servidor" y sigue con lo último que vio.
+  - Muestra siempre la **carrera más reciente**: ruta nueva `GET /api/carreras/actual`. Consulta al servidor cada medio segundo (desde 10c); el reloj se dibuja continuo con la hora del servidor. Si se corta la conexión, avisa "Sin conexión con el servidor" y sigue con lo último que vio.
   - Todo se mide en rem y el tamaño de letra crece con el ancho de la pantalla (entre 16 y 30 px), para proyectores de distinta resolución.
   - No cambia la base. Pruebas: 15 casos en `npm run probar`, todos pasan (se sumó 1 para el proyector). La página del proyector en el navegador no se probó.
-- [ ] **Etapa 10: Cuenta regresiva de largada.** 3, 2, 1, ¡ya! en ambas pantallas; el reloj arranca justo en el "ya" y no se aceptan llegadas antes. Sin cambios en la base.
+- [ ] **Etapa 10: Cuenta regresiva de largada** (dividida en partes; las pantallas se hacen en 10b y 10c):
+  - [x] **10a: Servidor.** `POST /api/carreras/:id/largada` deja `inicio_ms` 3 segundos en el futuro (`ahora + 3000`). Hasta ese momento, llegadas e incidentes se rechazan con 409 ("Todavía no largó: esperá el ¡ya!"). Los tiempos cuentan desde el "ya". Repetir la carrera sigue funcionando y cada nueva largada tiene su propia cuenta.
+    - La duración se cambia con `CUENTA_REGRESIVA_MS` en el `.env` (por defecto 3000; 0 la desactiva). No hace falta tocar el `.env` para que ande.
+    - Las pantallas no cambian: el reloj marca 00:00.00 durante 3 segundos y después arranca. Si se aprieta Llegó o Incidente en ese lapso aparece el cartel de error (en 10b los botones quedan deshabilitados).
+    - No cambia la base. Pruebas: 18 casos en `npm run probar`, todos pasan (3 nuevos: llegada e incidente antes del "ya" rechazados, llegada justo después aceptada con tiempo contado desde el "ya", y repetir carrera con nueva cuenta). Esta parte hace que `npm run probar` tarde unos segundos más, porque espera las cuentas regresivas.
+  - [x] **10b: Pantalla de control.** Al largar se ve 3, 2, 1 en el reloj grande y el estado dice "Preparados..."; en el "ya" aparece ¡YA! un instante (0,7 s) y después el reloj cuenta el tiempo. Los botones Llegó e Incidente de "En pista" quedan deshabilitados hasta el "ya". La hora sale del servidor, así que recargar la página en medio de la cuenta la retoma donde estaba.
+    - Solo cambia `public/index.html`. No cambia el servidor ni la base.
+    - El proyector sigue con el reloj en 00:00.00 durante la cuenta (10c) y los desempates siguen sin cuenta regresiva (10d).
+    - Falta probarla en el navegador: largar, ver 3-2-1-¡YA!, comprobar los botones deshabilitados y recargar la página a mitad de la cuenta.
+  - [x] **10c: Proyector.** Durante la cuenta, el proyector muestra el 3, 2, 1 a pantalla completa (números enormes sobre fondo azul oscuro) y en el "ya" un ¡YA! amarillo de 0,7 s; después queda el reloj corriendo. Usa la misma lógica que 10b y la hora del servidor, así que ambas pantallas van parejas (la diferencia es la demora de la red, de pocos milisegundos).
+    - Solo cambia `public/proyector.html`. Ahora consulta al servidor cada medio segundo (antes cada 1 segundo) para no perderse el 3 de la cuenta.
+    - Los desempates siguen sin cuenta regresiva (10d).
+    - Lógica del reloj probada con una pantalla simulada (3, 2, 1, ¡YA!, tiempo corriendo, desempate, carrera terminada). Falta verla en el navegador y en el proyector real.
+  - [x] **10d: Desempates con cuenta regresiva.** "Largar desempate" ahora deja `inicio_ms` 3 segundos en el futuro (misma duración, `CUENTA_REGRESIVA_MS`). Hasta el "ya", llegadas e incidentes del desempate se rechazan con 409. El control y el proyector muestran el 3, 2, 1, ¡YA! también en el desempate, y los botones del desempate quedan apagados hasta el "ya".
+    - Cambia el servidor, `public/index.html` y `public/proyector.html`. No cambia la base.
+    - Pruebas: 20 casos en `npm run probar`, todos pasan (2 nuevos: cuenta del desempate y deshacer con la cuenta activa). El reloj del proyector se probó con una pantalla simulada también para el desempate.
+  - [ ] **10e: Recorrido a mano.** La lista de chequeo está en `PRUEBA-A-MANO.md` (15 puntos: cuenta en ambas pantallas, recargar a mitad de la cuenta, deshacer, repetir carrera, desempate y proyector real). Falta hacerla; esta etapa se marca como hecha cuando salgan bien todos los puntos. No lleva código nuevo salvo que algo falle.
 - [ ] **Etapa 11: Podio e impresión.** Pantalla final con el podio (1.º a 3.º) y botón para imprimir o guardar la tabla en PDF. Sin cambios en la base.
 - [ ] **Etapa 12: Historial de carreras.** Lista de carreras anteriores y sus resultados finales. Sin cambios en la base.
 - [ ] **Etapa 13 (opcional): Tandas y final.** Varias tandas y una final con los mejores de cada una. Cambia la base (tablas nuevas). Solo si el evento lo necesita.

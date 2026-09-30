@@ -23,6 +23,10 @@
 </style>
 </head>
 <body class="min-h-screen bg-hormigon text-asfalto">
+<!-- Cuenta regresiva a pantalla completa: 3, 2, 1 y ¡YA! -->
+<div id="cuenta" class="impact fixed inset-0 z-10 items-center justify-center bg-asfalto" style="display: none" aria-hidden="true">
+  <span id="cuenta-texto" class="text-white" style="font-size: 45vh; line-height: 1"></span>
+</div>
 <header class="bg-asfalto text-white">
   <div class="flex items-baseline justify-between gap-4 px-8 py-4">
     <h1 id="titulo" class="impact text-4xl font-black italic tracking-tight">Carreras de dragsters</h1>
@@ -51,6 +55,7 @@ let estado = null;
 let desfase = 0; // diferencia entre el reloj del servidor y el de esta compu
 let firma = '';
 let ganadorVisto = null;
+let etiquetaBase = ''; // texto de estado; durante la cuenta regresiva se reemplaza
 
 function formato(ms) {
   const cent = Math.floor(ms / 10) % 100;
@@ -90,6 +95,7 @@ function dibujar(e) {
     estadoTexto = 'Empate por el ' + d.posicion + '.º puesto';
     detalle = 'Falta largar el desempate';
   }
+  etiquetaBase = estadoTexto;
   $('estado').textContent = estadoTexto;
   $('detalle').textContent = detalle;
 
@@ -115,16 +121,30 @@ function dibujar(e) {
   });
 }
 
-// El reloj se dibuja todo el tiempo con la hora del servidor; la información se consulta cada segundo.
+// El reloj se dibuja todo el tiempo con la hora del servidor; la información se consulta cada medio segundo.
+// Antes de la hora de largada de la carrera (o del desempate) se muestra 3, 2, 1 a pantalla completa y, en el "ya", un ¡YA! (0,7 s).
 function reloj() {
+  let cuenta = null; // texto de la cuenta regresiva, o null si no corresponde
+  let esYa = false;
   if (estado) {
     const c = estado.carrera;
     const d = estado.desempate;
     let ms = 0;
-    if (c.estado === 'en_curso') ms = Date.now() + desfase - c.inicio_ms;
-    else if (d.estado === 'en_curso') ms = Date.now() + desfase - d.inicio_ms;
-    else if (c.estado === 'finalizada') ms = c.fin_ms - c.inicio_ms;
+    let inicio = null; // hora de largada de la carrera o del desempate que está corriendo
+    if (c.estado === 'en_curso') inicio = c.inicio_ms;
+    else if (d.estado === 'en_curso') inicio = d.inicio_ms;
+    if (inicio !== null) {
+      ms = Date.now() + desfase - inicio;
+      if (ms < 0) cuenta = String(Math.ceil(-ms / 1000));
+      else if (ms < 700) { cuenta = '¡YA!'; esYa = true; }
+      $('estado').textContent = ms < 0 ? 'Preparados...' : etiquetaBase;
+    } else if (c.estado === 'finalizada') ms = c.fin_ms - c.inicio_ms;
     $('reloj').textContent = formato(Math.max(0, ms));
+  }
+  $('cuenta').style.display = cuenta === null ? 'none' : 'flex';
+  if (cuenta !== null) {
+    $('cuenta-texto').textContent = cuenta;
+    $('cuenta-texto').className = esYa ? 'text-placa' : 'text-white';
   }
   requestAnimationFrame(reloj);
 }
@@ -152,7 +172,7 @@ async function consultar() {
   } catch (err) {
     $('conexion').classList.remove('hidden');
   }
-  setTimeout(consultar, 1000);
+  setTimeout(consultar, 500); // tan seguido para no perderse el 3 de la cuenta
 }
 
 reloj();

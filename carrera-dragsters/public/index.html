@@ -162,13 +162,12 @@ function dibujar(estado) {
   $('cronometro').classList.toggle('hidden', enConfig);
   $('resultados').classList.toggle('hidden', enConfig);
   if (carrera.estado === 'en_curso') {
-    $('estado-carrera').textContent = 'Carrera en curso';
-    iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
+    iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now(), 'Carrera en curso', true);
   } else if (estado.desempate.estado === 'en_curso') {
     // Durante el desempate el reloj cuenta el desempate.
     const des = estado.desempate;
-    $('estado-carrera').textContent = 'Desempate por el ' + des.posicion + '.º puesto, intento ' + des.ronda + ' de ' + des.maximo;
-    iniciarReloj(des.inicio_ms, estado.ahora_ms - Date.now());
+    iniciarReloj(des.inicio_ms, estado.ahora_ms - Date.now(),
+      'Desempate por el ' + des.posicion + '.º puesto, intento ' + des.ronda + ' de ' + des.maximo, true);
   } else {
     detenerReloj();
     if (!enConfig) {
@@ -207,6 +206,7 @@ function dibujar(estado) {
 
 // Cronómetro: el tiempo sale del reloj del servidor, así sigue bien aunque se recargue la página.
 let relojId = null;
+let pistaBloqueada = false; // los botones de En pista se deshabilitan durante la cuenta regresiva
 function formato(ms) {
   const cent = Math.floor(ms / 10) % 100;
   const seg = Math.floor(ms / 1000) % 60;
@@ -216,11 +216,29 @@ function formato(ms) {
 function detenerReloj() {
   if (relojId) cancelAnimationFrame(relojId);
   relojId = null;
+  pistaBloqueada = false;
 }
-function iniciarReloj(inicio, desfase) {
+
+// Deshabilita (o habilita) Llegó e Incidente de En pista y del desempate.
+function bloquearPista(si) {
+  if (!si && !pistaBloqueada) return;
+  pistaBloqueada = si;
+  document.querySelectorAll('#l-pista button, #l-des button').forEach((b) => { b.disabled = si; });
+}
+// Con cuenta regresiva (carrera principal): antes de la hora de largada muestra 3, 2, 1 y deshabilita los botones;
+// en el "ya" muestra ¡YA! un instante y desde ahí cuenta el tiempo. La hora sale del servidor, así que recargar la página no la pierde.
+function iniciarReloj(inicio, desfase, etiqueta, conCuenta) {
   detenerReloj();
   const pintar = () => {
-    $('reloj').textContent = formato(Math.max(0, Date.now() + desfase - inicio));
+    const ms = Date.now() + desfase - inicio;
+    if (conCuenta && ms < 0) {
+      $('reloj').textContent = String(Math.ceil(-ms / 1000));
+      $('estado-carrera').textContent = 'Preparados...';
+    } else {
+      $('reloj').textContent = conCuenta && ms < 700 ? '¡YA!' : formato(Math.max(0, ms));
+      if (conCuenta) $('estado-carrera').textContent = etiqueta;
+    }
+    if (conCuenta) bloquearPista(ms < 0);
     relojId = requestAnimationFrame(pintar);
   };
   pintar();

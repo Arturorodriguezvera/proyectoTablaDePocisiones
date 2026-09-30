@@ -27,11 +27,23 @@ async function falla(metodo, url, estado, cuerpo) {
 
 // Ayudas
 const ruta = (id, cid, accion) => '/api/carreras/' + id + '/competidores/' + cid + '/' + accion;
-const largar = (id) => bien('POST', '/api/carreras/' + id + '/largada');
+// Las pruebas saltean la cuenta regresiva corriendo hacia atrás la hora de largada (la prueba de la cuenta la espera de verdad).
+const saltar = (id, e) => pool.query('UPDATE carreras SET inicio_ms = inicio_ms - ? WHERE id = ?', [Math.max(0, e.carrera.inicio_ms - e.ahora_ms) + 1, id]);
+const largar = async (id) => {
+  const e = await bien('POST', '/api/carreras/' + id + '/largada');
+  await saltar(id, e);
+  return e;
+};
 const estado = (id) => bien('GET', '/api/carreras/' + id);
 const llegar = async (id, cid) => { await dormir(25); return bien('POST', ruta(id, cid, 'llegada')); };
 const incidente = (id, cid) => bien('POST', ruta(id, cid, 'incidente'));
-const iniciarDes = (id) => bien('POST', '/api/carreras/' + id + '/desempate/iniciar');
+// Las pruebas saltean también la cuenta regresiva del desempate.
+const iniciarDes = async (id) => {
+  const e = await bien('POST', '/api/carreras/' + id + '/desempate/iniciar');
+  await pool.query('UPDATE desempates SET inicio_ms = inicio_ms - ? WHERE carrera_id = ? AND posicion = ? AND ronda = ?',
+    [Math.max(0, e.desempate.inicio_ms - e.ahora_ms) + 1, id, e.desempate.posicion, e.desempate.ronda]);
+  return e;
+};
 const llegarDes = async (id, cid) => { await dormir(25); return bien('POST', '/api/carreras/' + id + '/desempate/' + cid + '/llegada'); };
 const incidenteDes = (id, cid) => bien('POST', '/api/carreras/' + id + '/desempate/' + cid + '/incidente');
 const puestos = (e) => Object.fromEntries(e.competidores.filter((c) => c.posicion).map((c) => [c.numero, c.posicion]));
@@ -133,6 +145,7 @@ caso('doble clic: solo una acción vale', async () => {
   const { id, ids } = await nueva(2);
   const largadas = await Promise.all([api('POST', '/api/carreras/' + id + '/largada'), api('POST', '/api/carreras/' + id + '/largada')]);
   assert.deepStrictEqual(largadas.map((r) => r.status).sort(), [200, 409]);
+  await saltar(id, largadas.find((r) => r.status === 200).body);
   const llegadas = await Promise.all([api('POST', ruta(id, ids[0], 'llegada')), api('POST', ruta(id, ids[0], 'llegada'))]);
   assert.deepStrictEqual(llegadas.map((r) => r.status).sort(), [200, 409]);
   const c = await bien('POST', '/api/carreras', { nombre: 'TEST concurrencia', cupo: 2 });
@@ -267,6 +280,83 @@ caso('proyector: devuelve la carrera más reciente y sirve la página', async ()
   const r = await fetch(BASE + '/proyector');
   assert.strictEqual(r.status, 200);
   assert.ok((await r.text()).includes('Posiciones'));
+});
+
+caso('cuenta regresiva: llegadas e incidentes se rechazan antes del ya', async () => {
+  const { id, ids } = await nueva(3);
+  const e = await bien('POST', '/api/carreras/' + id + '/largada'); // sin saltar la cuenta
+  assert.ok(e.carrera.inicio_ms - e.ahora_ms > 0, 'la cuenta regresiva está desactivada (CUENTA_REGRESIVA_MS=0)');
+  assert.strictEqual(e.carrera.estado, 'en_curso');
+  await falla('POST', ruta(id, ids[0], 'llegada'), 409);
+  await falla('POST', ruta(id, ids[1], 'incidente'), 409);
+  const igual = await estado(id); // no quedó nada registrado
+  assert.ok(igual.competidores.every((c) => c.estado === 'en_carrera'));
+});
+
+caso('cuenta regresiva: la llegada justo después del ya se acepta y cuenta desde el ya', async () => {
+  const { id, ids } = await nueva(2);
+  const e = await bien('POST', '/api/carreras/' + id + '/largada');
+  const espera = e.carrera.inicio_ms - e.ahora_ms;
+  assert.ok(espera > 0, 'la cuenta regresiva está desactivada (CUENTA_REGRESIVA_MS=0)');
+  await dormir(espera + 50);
+  const ok = await bien('POST', ruta(id, ids[0], 'llegada'));
+  const tiempo = ok.competidores.find((c) => c.id === ids[0]).tiempo_ms;
+  assert.ok(tiempo >= 0 && tiempo < 1500, 'el tiempo tiene que contar desde el ya: ' + tiempo);
+});
+
+caso('cuenta regresiva: repetir la carrera sigue funcionando y la nueva largada tiene su cuenta', async () => {
+  const { id, ids } = await nueva(2);
+  await largar(id); // salta la primera cuenta
+  await incidente(id, ids[0]);
+  const rep = await incidente(id, ids[1]);
+  assert.strictEqual(rep.repetida, true);
+  assert.strictEqual(rep.carrera.estado, 'configuracion');
+  const e = await bien('POST', '/api/carreras/' + id + '/largada');
+  const espera = e.carrera.inicio_ms - e.ahora_ms;
+  assert.ok(espera > 0);
+  await falla('POST', ruta(id, ids[0], 'llegada'), 409);
+  await dormir(espera + 50);
+  const fin = await bien('POST', ruta(id, ids[0], 'llegada'));
+  assert.strictEqual(fin.competidores.find((c) => c.id === ids[0]).estado, 'llego');
+});
+
+caso('cuenta regresiva del desempate: llegadas e incidentes se rechazan antes del ya', async () => {
+  const { id, ids } = await terminada([12000, 12005, 15000]);
+  const d = await bien('POST', '/api/carreras/' + id + '/desempate/iniciar'); // sin saltar la cuenta
+  const espera = d.desempate.inicio_ms - d.ahora_ms;
+  assert.ok(espera > 0, 'la cuenta regresiva está desactivada (CUENTA_REGRESIVA_MS=0)');
+  const base = '/api/carreras/' + id + '/desempate/';
+  await falla('POST', base + ids[0] + '/llegada', 409);
+  await falla('POST', base + ids[1] + '/incidente', 409);
+  await falla('POST', ruta(id, ids[0], 'deshacer'), 409); // con el desempate largado no se deshace
+  await dormir(espera + 50);
+  const medio = await bien('POST', base + ids[1] + '/llegada');
+  const tiempo = medio.desempate.participantes.find((p) => p.id === ids[1]).tiempo_ms;
+  assert.ok(tiempo >= 0 && tiempo < 1500, 'el tiempo del desempate cuenta desde el ya: ' + tiempo);
+  await dormir(25);
+  const fin = await bien('POST', base + ids[0] + '/llegada');
+  assert.strictEqual(fin.desempate.estado, null);
+  assert.deepStrictEqual(fin.ganadores, [ids[1]]);
+});
+
+caso('deshacer con la cuenta regresiva activa no rompe nada', async () => {
+  const { id, ids } = await nueva(2);
+  const e = await bien('POST', '/api/carreras/' + id + '/largada'); // cuenta en marcha
+  const espera = e.carrera.inicio_ms - e.ahora_ms;
+  assert.ok(espera > 0, 'la cuenta regresiva está desactivada (CUENTA_REGRESIVA_MS=0)');
+  await falla('POST', ruta(id, ids[0], 'deshacer'), 409); // todos siguen en pista
+  const igual = await estado(id);
+  assert.strictEqual(igual.carrera.estado, 'en_curso');
+  assert.strictEqual(igual.carrera.inicio_ms, e.carrera.inicio_ms); // la hora de largada no se movió
+  await dormir(espera + 50);
+  await bien('POST', ruta(id, ids[0], 'llegada'));
+  const fin = await bien('POST', ruta(id, ids[1], 'llegada'));
+  assert.strictEqual(fin.carrera.estado, 'finalizada');
+  // Deshacer una llegada reabre la carrera SIN nueva cuenta regresiva: el reloj sigue desde la largada original.
+  const reabierta = await deshacer(id, ids[1]);
+  assert.strictEqual(reabierta.carrera.estado, 'en_curso');
+  assert.strictEqual(reabierta.carrera.inicio_ms, e.carrera.inicio_ms);
+  assert.ok(reabierta.carrera.inicio_ms < reabierta.ahora_ms);
 });
 
 (async () => {
