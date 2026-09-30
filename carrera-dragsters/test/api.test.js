@@ -221,6 +221,54 @@ caso('eliminar: reglas y puestos que se mantienen', async () => {
   assert.deepStrictEqual(e.ganadores, [ids[0]]);
 });
 
+const deshacer = (id, cid) => bien('POST', ruta(id, cid, 'deshacer'));
+
+caso('deshacer: corrige una llegada y reabre la carrera terminada', async () => {
+  const { id, ids } = await nueva(2);
+  await largar(id);
+  await llegar(id, ids[0]);
+  const fin = await llegar(id, ids[1]);
+  assert.strictEqual(fin.carrera.estado, 'finalizada');
+  const e = await deshacer(id, ids[0]);
+  assert.strictEqual(e.carrera.estado, 'en_curso');
+  assert.strictEqual(e.carrera.fin_ms, null);
+  const c0 = e.competidores.find((c) => c.id === ids[0]);
+  assert.ok(c0.estado === 'en_carrera' && c0.tiempo_ms === null);
+  assert.deepStrictEqual(e.ganadores, []);
+  await falla('POST', ruta(id, ids[0], 'deshacer'), 409); // ya está en pista
+  const otra = await llegar(id, ids[0]);
+  assert.strictEqual(otra.carrera.estado, 'finalizada');
+  assert.deepStrictEqual(otra.ganadores, [ids[1]]);
+});
+
+caso('deshacer un incidente y sus límites (sin largar, con desempate largado)', async () => {
+  const antes = await nueva(2);
+  await falla('POST', ruta(antes.id, antes.ids[0], 'deshacer'), 409); // no largó
+  const { id, ids } = await nueva(3);
+  await largar(id);
+  await incidente(id, ids[0]);
+  const e = await deshacer(id, ids[0]);
+  assert.strictEqual(e.competidores.find((c) => c.id === ids[0]).estado, 'en_carrera');
+  // Con un empate pendiente (desempate sin largar) todavía se puede deshacer; con el desempate largado, no.
+  const t = await terminada([12000, 12005, 15000]);
+  assert.strictEqual(t.e.desempate.estado, 'iniciar');
+  const reabierta = await deshacer(t.id, t.ids[2]);
+  assert.strictEqual(reabierta.carrera.estado, 'en_curso');
+  await llegar(t.id, t.ids[2]);
+  await iniciarDes(t.id);
+  await falla('POST', ruta(t.id, t.ids[0], 'deshacer'), 409);
+});
+
+caso('proyector: devuelve la carrera más reciente y sirve la página', async () => {
+  const c = await bien('POST', '/api/carreras', { nombre: 'TEST proyector', cupo: 2 });
+  const actual = await bien('GET', '/api/carreras/actual');
+  assert.strictEqual(actual.carrera.id, c.carrera.id);
+  assert.ok(typeof actual.ahora_ms === 'number'); // el proyector la usa para sincronizar el reloj
+  const r = await fetch(BASE + '/proyector');
+  assert.strictEqual(r.status, 200);
+  assert.ok((await r.text()).includes('Posiciones'));
+});
+
 (async () => {
   let fallas = 0;
   for (const [nombre, fn] of casos) {

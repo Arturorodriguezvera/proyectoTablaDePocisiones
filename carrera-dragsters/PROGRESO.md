@@ -2,7 +2,7 @@
 
 ## Stack y decisiones
 - Backend: Node.js + Express. Base de datos: MySQL. Frontend: JavaScript + Tailwind CSS.
-- Una sola pantalla por ahora (sin tiempo real entre dispositivos).
+- Dos ventanas: control (`/`) y proyector (`/proyector`), sincronizadas por consulta cada 1 segundo (sin WebSockets).
 - Cronometraje manual: botón "Llegó" por competidor. Más adelante se reemplaza por un sensor sin tocar el resto.
 - Empates: si dos o más competidores empatan en cualquiera de los primeros 3 puestos, corren de nuevo
   solo los empatados (desempate). Máximo 3 intentos; si siguen empatados, todos quedan con ese puesto.
@@ -44,6 +44,21 @@
   - **Pruebas de la API** (`npm run probar`, con el servidor prendido): 12 casos contra una base real, todos pasan. Cubren cupo y números repetidos, largada incompleta, carrera normal, todos con incidente (la carrera se repite), un solo corredor que llega, doble clic (largada, llegada y altas simultáneas), empate por el 1.º, empate por el 3.º, empate en el 4.º (sin desempate), desempate con incidente, tres intentos empatados, dos empates en una misma carrera, y reglas de eliminación. Crea carreras "TEST ..." y las borra al terminar.
   - **Diseño para proyectar:** durante la carrera la pantalla se ensancha y muestra En pista / Incidentes a la izquierda y Posiciones a la derecha (en pantallas anchas); reloj más grande; letra más grande en pantallas de 1280 px o más.
   - Lo que NO está probado: la pantalla en el navegador (botones, animación del ganador, diseño). Falta hacer el recorrido a mano y ajustar lo que se vea mal en el proyector real.
+- [x] **Etapa 8: Deshacer llegadas e incidentes. (Hecha: ver notas abajo.)** Botón "Deshacer" en Posiciones e Incidentes que devuelve al competidor a "En pista" (con confirmación). Si la carrera ya había terminado, se reabre y el reloj sigue. Solo hasta que se largue un desempate. Sin cambios en la base.
+  - Botón "Deshacer" (con confirmación) en las filas de Posiciones y de Incidentes: devuelve al competidor a "En pista" y le borra el tiempo o el incidente. Si la carrera ya había terminado, se reabre (`en_curso`) y el reloj sigue contando desde la largada.
+  - Ruta nueva: `POST /api/carreras/:id/competidores/:cid/deshacer`. No cambia la base.
+  - Se puede deshacer aunque haya un empate pendiente (desempate todavía sin largar), por si el empate vino de un error. Desde que se larga un desempate ya no se puede.
+  - No se puede deshacer a un competidor eliminado.
+  - Pruebas: 14 casos en `npm run probar`, todos pasan (se sumaron 2 para deshacer). La pantalla en el navegador sigue sin probarse.
+- [x] **Etapa 9: Vista de proyector. (Hecha: ver notas abajo.)** Página aparte (`/proyector`) con solo el reloj y las posiciones, sin botones, que se actualiza sola (consulta al servidor cada 1 segundo). Se controla desde una ventana y se proyecta la otra. Cambia la decisión de "una sola pantalla". Sin cambios en la base.
+  - Página nueva `public/proyector.html` (se abre en `http://localhost:3000/proyector`, también con el enlace "Abrir vista de proyector" de la pantalla de control). Muestra el reloj grande, el estado de la carrera y las posiciones, sin botones. El zoom del ganador se ve una sola vez.
+  - Muestra siempre la **carrera más reciente**: ruta nueva `GET /api/carreras/actual`. Consulta al servidor cada 1 segundo; el reloj se dibuja continuo con la hora del servidor. Si se corta la conexión, avisa "Sin conexión con el servidor" y sigue con lo último que vio.
+  - Todo se mide en rem y el tamaño de letra crece con el ancho de la pantalla (entre 16 y 30 px), para proyectores de distinta resolución.
+  - No cambia la base. Pruebas: 15 casos en `npm run probar`, todos pasan (se sumó 1 para el proyector). La página del proyector en el navegador no se probó.
+- [ ] **Etapa 10: Cuenta regresiva de largada.** 3, 2, 1, ¡ya! en ambas pantallas; el reloj arranca justo en el "ya" y no se aceptan llegadas antes. Sin cambios en la base.
+- [ ] **Etapa 11: Podio e impresión.** Pantalla final con el podio (1.º a 3.º) y botón para imprimir o guardar la tabla en PDF. Sin cambios en la base.
+- [ ] **Etapa 12: Historial de carreras.** Lista de carreras anteriores y sus resultados finales. Sin cambios en la base.
+- [ ] **Etapa 13 (opcional): Tandas y final.** Varias tandas y una final con los mejores de cada una. Cambia la base (tablas nuevas). Solo si el evento lo necesita.
 - [ ] Más adelante: sensor de llegada.
 
 ## Etapa 1: cómo correrla

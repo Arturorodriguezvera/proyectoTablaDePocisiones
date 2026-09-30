@@ -85,6 +85,16 @@ app.post('/api/carreras', ah(async (req, res) => {
   res.status(201).json(await cargar(r.insertId));
 }));
 
+// ---- Etapa 9: vista de proyector ----
+app.get('/proyector', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'proyector.html')));
+
+// La carrera más reciente: es la que muestra el proyector. Va antes de /:id para que no se confunda.
+app.get('/api/carreras/actual', ah(async (req, res) => {
+  const [[ultima]] = await pool.query('SELECT id FROM carreras ORDER BY id DESC LIMIT 1');
+  if (!ultima) throw new HttpError(404, 'Todavía no hay ninguna carrera');
+  res.json(await cargar(ultima.id));
+}));
+
 app.get('/api/carreras/:id', ah(async (req, res) => {
   res.json(await cargar(entero(req.params.id, 'Id')));
 }));
@@ -253,6 +263,22 @@ function marcarDesempate(nuevoEstado) {
 }
 app.post('/api/carreras/:id/desempate/:cid/llegada', marcarDesempate('llego'));
 app.post('/api/carreras/:id/desempate/:cid/incidente', marcarDesempate('incidente'));
+
+// ---- Etapa 8: deshacer una llegada o un incidente ----
+app.post('/api/carreras/:id/competidores/:cid/deshacer', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { carrera, hay_desempates: hayDesempates } = await cargar(id);
+  if (carrera.estado === 'configuracion') throw new HttpError(409, 'La carrera todavía no largó');
+  if (hayDesempates) throw new HttpError(409, 'Ya largó un desempate: no se puede deshacer');
+  const [r] = await pool.query(
+    "UPDATE competidores SET estado = 'en_carrera', tiempo_ms = NULL WHERE id = ? AND carrera_id = ? AND eliminado = 0 AND estado <> 'en_carrera'",
+    [cid, id]);
+  if (!r.affectedRows) throw new HttpError(409, 'Ese competidor ya está en pista');
+  // Si la carrera ya había terminado, se reabre y el reloj sigue contando desde la largada.
+  await pool.query("UPDATE carreras SET estado = 'en_curso', fin_ms = NULL WHERE id = ? AND estado = 'finalizada'", [id]);
+  res.json(await cargar(id));
+}));
 
 // ---- Etapa 6: eliminación manual (con la carrera terminada y el ganador definido) ----
 app.post('/api/carreras/:id/competidores/:cid/eliminar', ah(async (req, res) => {

@@ -30,6 +30,7 @@
 <header class="bg-asfalto text-white">
   <div class="mx-auto max-w-3xl px-4 py-6">
     <h1 class="text-4xl font-black italic tracking-tight" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">Carreras de dragsters</h1>
+    <a href="/proyector" target="_blank" rel="noopener" class="mt-2 inline-block font-semibold text-white/80 underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Abrir vista de proyector</a>
   </div>
   <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
 </header>
@@ -314,6 +315,12 @@ function dibujarResultados(estado) {
     if (!confirm('¿Sacar a ' + c.nombre + ' de la tabla final? No se puede deshacer.')) return Promise.resolve();
     return marcar(c.id, 'eliminar');
   });
+  const deshacer = (c) => boton('Deshacer', 'font-semibold underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
+    const que = c.estado === 'llego' ? 'Se borra su tiempo de llegada.' : 'Se quita su incidente.';
+    const reabre = estado.carrera.estado === 'finalizada' ? ' La carrera se reabre y el reloj sigue corriendo.' : '';
+    if (!confirm('¿Devolver a ' + c.nombre + ' a la pista? ' + que + reabre)) return Promise.resolve();
+    return marcar(c.id, 'deshacer');
+  });
   // El zoom sobre el ganador se anima una sola vez; después queda resaltado fijo.
   const clave = carreraId + ':' + estado.ganadores.join(',');
   const animar = hayGanador && clave !== ganadorVisto;
@@ -338,6 +345,7 @@ function dibujarResultados(estado) {
         return marcar(c.id, 'incidente');
       }));
     }
+    if (!estado.hay_desempates) partes.push(deshacer(c));
     if (puedeEliminar && !gana) partes.push(eliminar(c));
     return fila(clases, partes);
   });
@@ -346,7 +354,7 @@ function dibujarResultados(estado) {
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
     placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
-  ].concat(puedeEliminar ? [eliminar(c)] : [])));
+  ].concat(estado.hay_desempates ? [] : [deshacer(c)]).concat(puedeEliminar ? [eliminar(c)] : [])));
 }
 
 $('largar').onclick = () => accion(async () => {

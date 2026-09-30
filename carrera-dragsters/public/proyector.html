@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carreras de dragsters: proyector</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    asfalto: '#10233B', hormigon: '#E6E8E5', bandera: '#C8242B', placa: '#F5C400'
+  } } } };
+</script>
+<style>
+  /* Todo se mide en rem: la pantalla crece con el ancho del proyector. */
+  html { font-size: clamp(16px, 1.5vw, 30px); }
+  .impact { font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .placa { display: flex; height: 3rem; width: 4.5rem; flex-shrink: 0; align-items: center; justify-content: center; border: 2px solid #10233B; border-radius: 0.375rem; background: #F5C400; color: #10233B; font-size: 2rem; font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
+  .ganador .placa { background: #fff; }
+  .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
+  @keyframes zoom-ganador { 0% { transform: scale(1); } 55% { transform: scale(1.09); } 100% { transform: scale(1.03); } }
+  @media (prefers-reduced-motion: reduce) { .ganador-anim { animation: none; } }
+</style>
+</head>
+<body class="min-h-screen bg-hormigon text-asfalto">
+<header class="bg-asfalto text-white">
+  <div class="flex items-baseline justify-between gap-4 px-8 py-4">
+    <h1 id="titulo" class="impact text-4xl font-black italic tracking-tight">Carreras de dragsters</h1>
+    <p id="conexion" class="hidden rounded-md bg-white px-3 py-1 font-semibold text-bandera">Sin conexión con el servidor</p>
+  </div>
+  <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
+</header>
+
+<main class="grid gap-8 p-8 lg:grid-cols-[2fr_3fr]">
+  <section class="self-start rounded-md bg-asfalto p-8 text-white">
+    <p id="estado" class="text-xl font-semibold text-white/70">Conectando...</p>
+    <p id="reloj" class="impact whitespace-nowrap text-7xl tabular-nums">00:00.00</p>
+    <p id="detalle" class="mt-2 text-2xl font-semibold"></p>
+  </section>
+
+  <section>
+    <h2 class="text-2xl font-bold">Posiciones</h2>
+    <ul id="posiciones" class="mt-3 space-y-2"></ul>
+    <p id="vacio" class="mt-3 text-2xl text-asfalto/60">Todavía nadie cruzó la meta.</p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let estado = null;
+let desfase = 0; // diferencia entre el reloj del servidor y el de esta compu
+let firma = '';
+let ganadorVisto = null;
+
+function formato(ms) {
+  const cent = Math.floor(ms / 10) % 100;
+  const seg = Math.floor(ms / 1000) % 60;
+  const min = Math.floor(ms / 60000);
+  return String(min).padStart(2, '0') + ':' + String(seg).padStart(2, '0') + '.' + String(cent).padStart(2, '0');
+}
+
+function etiqueta(clases, texto) {
+  const s = document.createElement('span');
+  s.className = clases;
+  s.textContent = texto;
+  return s;
+}
+
+function dibujar(e) {
+  const c = e.carrera;
+  const d = e.desempate;
+  const llegaron = e.competidores.filter((x) => x.estado === 'llego' && !x.eliminado)
+    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero);
+  const enPista = e.competidores.filter((x) => x.estado === 'en_carrera').length;
+  const nombresGanadores = e.competidores.filter((x) => e.ganadores.includes(x.id)).map((x) => x.nombre).join(' y ');
+
+  $('titulo').textContent = c.nombre;
+  let estadoTexto = 'Carrera terminada';
+  let detalle = e.ganadores.length ? (e.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombresGanadores : '';
+  if (c.estado === 'configuracion') {
+    estadoTexto = 'Esperando la largada';
+    detalle = e.competidores.length + ' de ' + c.cupo + ' competidores anotados';
+  } else if (c.estado === 'en_curso') {
+    estadoTexto = 'Carrera en curso';
+    detalle = enPista + (enPista === 1 ? ' auto en pista' : ' autos en pista');
+  } else if (d.estado === 'en_curso') {
+    estadoTexto = 'Desempate por el ' + d.posicion + '.º puesto, intento ' + d.ronda + ' de ' + d.maximo;
+    detalle = d.participantes.map((p) => p.nombre).join(' y ');
+  } else if (d.estado === 'iniciar') {
+    estadoTexto = 'Empate por el ' + d.posicion + '.º puesto';
+    detalle = 'Falta largar el desempate';
+  }
+  $('estado').textContent = estadoTexto;
+  $('detalle').textContent = detalle;
+
+  // Posiciones
+  $('vacio').classList.toggle('hidden', llegaron.length > 0);
+  const hayGanador = e.ganadores.length > 0;
+  const clave = c.id + ':' + e.ganadores.join(',');
+  const animar = hayGanador && clave !== ganadorVisto; // el zoom se muestra una sola vez
+  if (hayGanador) ganadorVisto = clave;
+  const ul = $('posiciones');
+  ul.replaceChildren();
+  llegaron.forEach((x) => {
+    const gana = e.ganadores.includes(x.id);
+    const li = document.createElement('li');
+    li.className = 'flex items-center gap-4 rounded-md border-2 border-asfalto bg-white px-4 py-2' +
+      (gana ? ' ganador' + (animar ? ' ganador-anim' : '') : hayGanador ? ' opacity-70' : '');
+    li.appendChild(etiqueta('w-14 text-5xl font-black tabular-nums', x.posicion));
+    li.appendChild(etiqueta('placa', x.numero));
+    li.appendChild(etiqueta('flex-1 text-3xl font-semibold', x.nombre));
+    if (gana) li.appendChild(etiqueta('rounded-md bg-asfalto px-3 py-1 text-xl font-bold text-white', e.ganadores.length > 1 ? 'Empate en 1.º' : 'Ganador'));
+    li.appendChild(etiqueta('text-3xl font-bold tabular-nums', formato(x.tiempo_ms)));
+    ul.appendChild(li);
+  });
+}
+
+// El reloj se dibuja todo el tiempo con la hora del servidor; la información se consulta cada segundo.
+function reloj() {
+  if (estado) {
+    const c = estado.carrera;
+    const d = estado.desempate;
+    let ms = 0;
+    if (c.estado === 'en_curso') ms = Date.now() + desfase - c.inicio_ms;
+    else if (d.estado === 'en_curso') ms = Date.now() + desfase - d.inicio_ms;
+    else if (c.estado === 'finalizada') ms = c.fin_ms - c.inicio_ms;
+    $('reloj').textContent = formato(Math.max(0, ms));
+  }
+  requestAnimationFrame(reloj);
+}
+
+async function consultar() {
+  try {
+    const r = await fetch('/api/carreras/actual');
+    if (r.status === 404) {
+      estado = null;
+      $('estado').textContent = 'Todavía no hay ninguna carrera';
+    } else if (r.ok) {
+      const e = await r.json();
+      desfase = e.ahora_ms - Date.now();
+      estado = e;
+      // Solo se vuelve a dibujar si algo cambió (así no se repite la animación del ganador).
+      const nueva = JSON.stringify([e.carrera, e.competidores, e.ganadores, e.desempate]);
+      if (nueva !== firma) {
+        firma = nueva;
+        dibujar(e);
+      }
+    } else {
+      throw new Error('respuesta ' + r.status);
+    }
+    $('conexion').classList.add('hidden');
+  } catch (err) {
+    $('conexion').classList.remove('hidden');
+  }
+  setTimeout(consultar, 1000);
+}
+
+reloj();
+consultar();
+</script>
+</body>
+</html>
