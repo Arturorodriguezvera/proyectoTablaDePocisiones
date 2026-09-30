@@ -1,7 +1,7 @@
 'use strict';
-// Puestos, empates y desempates. Lógica pura: recibe filas de la base y devuelve los puestos.
+// Puestos, empates y desempates. Lógica pura: filas de la base y devuelve los puestos.
 //
-// Reglas:
+// Tener en cuenta:
 // - Dos tiempos empatan si coinciden a la centésima de segundo.
 // - Si el empate ocupa el 1.º, 2.º o 3.º puesto, los empatados corren de nuevo solos (desempate).
 // - Máximo 3 intentos por empate. Si siguen empatados, comparten ese puesto.
@@ -24,10 +24,6 @@ function agrupar(lista) {
   return grupos;
 }
 
-// carrera: fila de `carreras`. competidores, desempates y partes: filas de las tablas
-// `competidores`, `desempates` y `desempate_participantes`.
-// Devuelve { puestos: Map(id -> puesto), pendiente } donde pendiente es null o el primer
-// desempate que falta largar ('iniciar') o terminar ('en_curso').
 function calcular(carrera, competidores, desempates, partes) {
   const puestos = new Map();
   const porId = new Map(competidores.map((c) => [c.id, c]));
