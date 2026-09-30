@@ -11,6 +11,7 @@
   } } } };
 </script>
 <style>
+  @media (min-width: 1280px) { html { font-size: 20px; } }
   .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
   .ganador .placa { background: #fff; }
   .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
@@ -72,7 +73,7 @@
 
     <div id="cronometro" class="mt-6 hidden rounded-md bg-asfalto px-6 py-6 text-white">
       <p id="estado-carrera" class="font-semibold text-white/70">Carrera en curso</p>
-      <p id="reloj" class="text-7xl tabular-nums sm:text-8xl" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">00:00.00</p>
+      <p id="reloj" class="text-7xl tabular-nums sm:text-8xl lg:text-9xl" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">00:00.00</p>
     </div>
 
     <div id="resultados" class="hidden">
@@ -82,9 +83,11 @@
         <button id="des-largar" class="boton !bg-bandera mt-3 hidden">Largar desempate</button>
         <ul id="l-des" class="mt-3 space-y-2"></ul>
       </div>
-      <div id="b-pista" class="mt-8"><h3 class="text-xl font-bold">En pista</h3><ul id="l-pista" class="mt-2 space-y-2"></ul></div>
-      <div id="b-pos" class="mt-8"><h3 class="text-xl font-bold">Posiciones</h3><ul id="l-pos" class="mt-2 space-y-2"></ul></div>
-      <div id="b-inc" class="mt-8"><h3 class="text-xl font-bold">Incidentes</h3><ul id="l-inc" class="mt-2 space-y-2"></ul></div>
+      <div class="lg:grid lg:grid-cols-2 lg:gap-x-8">
+      <div id="b-pista" class="mt-8 lg:col-start-1 lg:row-start-1"><h3 class="text-xl font-bold">En pista</h3><ul id="l-pista" class="mt-2 space-y-2"></ul></div>
+      <div id="b-pos" class="mt-8 lg:col-start-2 lg:row-start-1 lg:row-span-2"><h3 class="text-xl font-bold">Posiciones</h3><ul id="l-pos" class="mt-2 space-y-2"></ul></div>
+      <div id="b-inc" class="mt-8 lg:col-start-1 lg:row-start-2"><h3 class="text-xl font-bold">Incidentes</h3><ul id="l-inc" class="mt-2 space-y-2"></ul></div>
+      </div>
     </div>
 
     <ul id="lista" class="mt-6 space-y-2"></ul>
@@ -142,6 +145,8 @@ function dibujar(estado) {
   $('faltan').textContent = completa
     ? 'Lista completa. Ya se puede largar.'
     : 'Faltan ' + faltan + (faltan === 1 ? ' competidor' : ' competidores') + ' para poder largar.';
+  document.querySelector('main').classList.toggle('max-w-3xl', enConfig);
+  document.querySelector('main').classList.toggle('max-w-6xl', !enConfig);
   $('cronometro').classList.toggle('hidden', enConfig);
   $('resultados').classList.toggle('hidden', enConfig);
   if (carrera.estado === 'en_curso') {

@@ -38,7 +38,10 @@
   - Se puede eliminar tanto a los que llegaron como a los que tuvieron incidente. Eliminar no se puede deshacer desde la pantalla.
   - El zoom respeta la opción "reducir movimiento" del sistema (queda el resaltado fijo, sin animación).
   - Falta probarla en el navegador: terminar una carrera, ver el zoom en el 1.º, eliminar a otro y recargar la página; probar también con un empate final.
-- [ ] Etapa 7: Pruebas y pulido (casos raros, diseño con Tailwind para pantalla proyectada).
+- [x] **Etapa 7: Pruebas y pulido.**
+  - **Pruebas de la API** (`npm run probar`, con el servidor prendido): 11 casos contra una base real, todos pasan. Cubren cupo y números repetidos, largada incompleta, carrera normal, todos con incidente, un solo corredor que llega, doble clic (largada, llegada y altas simultáneas), empate por el 1.º, empate por el 3.º, empate en el 4.º (sin desempate), desempate con incidente, tres intentos empatados, dos empates en una misma carrera, y reglas de eliminación. Crea carreras "TEST ..." y las borra al terminar.
+  - **Diseño para proyectar:** durante la carrera la pantalla se ensancha y muestra En pista / Incidentes a la izquierda y Posiciones a la derecha (en pantallas anchas); reloj más grande; letra más grande en pantallas de 1280 px o más.
+  - Lo que NO está probado: la pantalla en el navegador (botones, animación del ganador, diseño). Falta hacer el recorrido a mano y ajustar lo que se vea mal en el proyector real.
 - [ ] Más adelante: sensor de llegada.
 
 ## Etapa 1: cómo correrla
