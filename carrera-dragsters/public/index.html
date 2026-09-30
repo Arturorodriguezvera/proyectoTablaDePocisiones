@@ -12,6 +12,15 @@
 </script>
 <style>
   @media (min-width: 1280px) { html { font-size: 20px; } }
+  /* Al imprimir o guardar como PDF quedan solo el encabezado, el podio y las tablas. */
+  @media print {
+    header, #config, #form-comp, #largada, #lista, #cronometro, #b-pista, #b-des, #error, #aviso, #nueva, .no-imprimir, button { display: none !important; }
+    body { background: #fff; }
+    main { max-width: none !important; padding: 0 !important; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .ganador { transform: none !important; box-shadow: none !important; }
+    li, #podio > div { break-inside: avoid; }
+  }
   .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
   .ganador .placa { background: #fff; }
   .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
@@ -54,7 +63,7 @@
   </section>
 
   <section id="registro" class="hidden">
-    <div class="flex flex-wrap items-end justify-between gap-3">
+    <div class="no-imprimir flex flex-wrap items-end justify-between gap-3">
       <h2 id="titulo" class="text-2xl font-bold"></h2>
       <p class="text-lg font-semibold"><span id="contador"></span> competidores</p>
     </div>
@@ -80,6 +89,18 @@
     </div>
 
     <div id="resultados" class="hidden">
+      <div id="encabezado-impresion" class="hidden print:block">
+        <h1 id="imp-titulo" class="text-3xl font-black"></h1>
+        <p id="imp-detalle" class="mt-1 text-lg"></p>
+      </div>
+      <div id="b-podio" class="mt-8 hidden">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <h3 class="text-xl font-bold">Podio</h3>
+          <button id="imprimir" class="boton no-imprimir">Imprimir o guardar como PDF</button>
+        </div>
+        <div id="podio" class="mt-4 flex items-end gap-3"></div>
+        <p class="no-imprimir mt-2">En la ventana que se abre, elegí "Guardar como PDF" como impresora para guardar el archivo.</p>
+      </div>
       <div id="b-des" class="mt-8 hidden rounded-md border-2 border-bandera bg-white p-4">
         <h3 id="des-titulo" class="text-xl font-bold"></h3>
         <p id="des-texto" class="mt-1"></p>
@@ -308,6 +329,42 @@ $('des-largar').onclick = () => accion(async () => {
   }
 });
 
+// ---- Podio: aparece con la carrera terminada y el ganador definido (sin desempate pendiente) ----
+$('imprimir').onclick = () => window.print();
+
+function dibujarPodio(estado) {
+  const c = estado.carrera;
+  const visible = c.estado === 'finalizada' && !estado.desempate.estado && estado.ganadores.length > 0;
+  $('b-podio').classList.toggle('hidden', !visible);
+  if (!visible) return;
+  // Encabezado que solo se ve al imprimir
+  const nombres = estado.competidores.filter((x) => estado.ganadores.includes(x.id)).map((x) => x.nombre).join(' y ');
+  $('imp-titulo').textContent = c.nombre + ': resultados finales';
+  $('imp-detalle').textContent = 'Fecha: ' + new Date(c.fin_ms).toLocaleString('es-AR') + '. Tiempo total: ' + formato(c.fin_ms - c.inicio_ms) +
+    '. ' + (estado.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombres + '.';
+  // Podio: 2.º a la izquierda, 1.º al centro, 3.º a la derecha (si hay empates, varios en el mismo escalón)
+  const top = estado.competidores.filter((x) => x.estado === 'llego' && !x.eliminado && x.posicion <= 3);
+  const altura = { 1: 'h-28', 2: 'h-20', 3: 'h-12' };
+  const podio = $('podio');
+  podio.replaceChildren();
+  [2, 1, 3].forEach((p) => {
+    const del = top.filter((x) => x.posicion === p).sort((a, b) => a.numero - b.numero);
+    if (!del.length) return;
+    const col = document.createElement('div');
+    col.className = 'flex flex-1 flex-col justify-end gap-2';
+    del.forEach((x) => {
+      const ficha = document.createElement('div');
+      ficha.className = 'flex flex-col items-center gap-1 rounded-md border-2 border-asfalto bg-white px-2 py-3 text-center' + (p === 1 ? ' ganador' : '');
+      ficha.appendChild(etiqueta('placa', x.numero));
+      ficha.appendChild(etiqueta('text-xl font-semibold', x.nombre));
+      ficha.appendChild(etiqueta('text-lg font-bold tabular-nums', formato(x.tiempo_ms)));
+      col.appendChild(ficha);
+    });
+    col.appendChild(etiqueta('flex items-center justify-center rounded-t-md text-4xl font-black ' + altura[p] + (p === 1 ? ' bg-placa text-asfalto' : ' bg-asfalto text-white'), p + '.º'));
+    podio.appendChild(col);
+  });
+}
+
 let ganadorVisto = null;
 
 function dibujarResultados(estado) {
@@ -369,6 +426,7 @@ function dibujarResultados(estado) {
   });
 
   dibujarDesempate(estado);
+  dibujarPodio(estado);
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
     placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
