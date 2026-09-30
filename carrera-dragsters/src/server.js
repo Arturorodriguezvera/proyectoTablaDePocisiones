@@ -158,6 +158,29 @@ async function cerrarSiTermino(carreraId) {
   }
 }
 
+// Si todos los competidores tuvieron un incidente, la carrera se repite con los mismos participantes:
+// vuelve a "configuracion" (lista completa, lista para largar) y se borran tiempos, desempates y eliminaciones.
+async function repetirSiTodosFallaron(carreraId) {
+  const [[fila]] = await pool.query(
+    "SELECT COUNT(*) AS total, SUM(estado = 'incidente') AS fallaron FROM competidores WHERE carrera_id = ? AND eliminado = 0",
+    [carreraId]);
+  if (Number(fila.total) === 0 || Number(fila.fallaron) !== Number(fila.total)) return false;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM desempates WHERE carrera_id = ?', [carreraId]);
+    await conn.query("UPDATE competidores SET estado = 'en_carrera', tiempo_ms = NULL, eliminado = 0 WHERE carrera_id = ?", [carreraId]);
+    await conn.query("UPDATE carreras SET estado = 'configuracion', inicio_ms = NULL, fin_ms = NULL WHERE id = ?", [carreraId]);
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+  return true;
+}
+
 app.post('/api/carreras/:id/competidores/:cid/llegada', ah(async (req, res) => {
   const id = entero(req.params.id, 'Id');
   const cid = entero(req.params.cid, 'Competidor');
@@ -184,8 +207,9 @@ app.post('/api/carreras/:id/competidores/:cid/incidente', ah(async (req, res) =>
     "UPDATE competidores SET estado = 'incidente', tiempo_ms = NULL WHERE id = ? AND carrera_id = ? AND eliminado = 0 AND estado <> 'incidente'",
     [cid, id]);
   if (!r.affectedRows) throw new HttpError(409, 'Ese competidor ya tiene un incidente registrado');
-  if (carrera.estado === 'en_curso') await cerrarSiTermino(id);
-  res.json(await cargar(id));
+  const repetida = await repetirSiTodosFallaron(id);
+  if (!repetida && carrera.estado === 'en_curso') await cerrarSiTermino(id);
+  res.json({ ...(await cargar(id)), repetida }); // repetida: true avisa a la pantalla que la carrera se reinició
 }));
 
 // ---- Etapa 5: desempate ----

@@ -87,14 +87,36 @@ caso('carrera normal: puestos por tiempo y un ganador', async () => {
   assert.deepStrictEqual(puestos(e), { 2: 1, 1: 2 });
 });
 
-caso('todos con incidente: termina sin ganador', async () => {
+caso('todos con incidente: la carrera se repite con los mismos participantes', async () => {
   const { id, ids } = await nueva(2);
   await largar(id);
-  await incidente(id, ids[0]);
+  const medio = await incidente(id, ids[0]);
+  assert.strictEqual(medio.repetida, false); // todavía queda uno en pista
   const e = await incidente(id, ids[1]);
-  assert.strictEqual(e.carrera.estado, 'finalizada');
+  assert.strictEqual(e.repetida, true);
+  assert.strictEqual(e.carrera.estado, 'configuracion');
+  assert.strictEqual(e.carrera.inicio_ms, null);
+  assert.strictEqual(e.completa, true);
+  assert.deepStrictEqual(e.competidores.map((c) => c.id), ids);
+  assert.ok(e.competidores.every((c) => c.estado === 'en_carrera' && c.tiempo_ms === null && !c.eliminado));
   assert.deepStrictEqual(e.ganadores, []);
-  assert.strictEqual(e.desempate.estado, null);
+  // Se puede largar de nuevo y terminar normalmente.
+  await largar(id);
+  await llegar(id, ids[0]);
+  const fin = await incidente(id, ids[1]);
+  assert.strictEqual(fin.repetida, false);
+  assert.strictEqual(fin.carrera.estado, 'finalizada');
+  assert.deepStrictEqual(fin.ganadores, [ids[0]]);
+});
+
+caso('un incidente posterior que deja a todos fuera también repite la carrera', async () => {
+  const { id, ids } = await nueva(2);
+  await largar(id);
+  await llegar(id, ids[0]);
+  await incidente(id, ids[1]); // la carrera termina y gana ids[0]
+  const e = await incidente(id, ids[0]); // ahora todos tienen incidente
+  assert.strictEqual(e.repetida, true);
+  assert.strictEqual(e.carrera.estado, 'configuracion');
 });
 
 caso('un solo corredor llega', async () => {

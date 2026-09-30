@@ -37,6 +37,8 @@
 <main class="mx-auto max-w-3xl px-4 py-8">
   <p id="error" role="alert" class="mb-6 hidden rounded-md border-2 border-bandera bg-white px-4 py-3 font-semibold text-bandera"></p>
 
+  <p id="aviso" role="status" class="mb-6 hidden rounded-md bg-asfalto px-4 py-3 text-lg font-semibold text-white"></p>
+
   <section id="config">
     <h2 class="text-2xl font-bold">Configurar la carrera</h2>
     <form id="form-config" class="mt-4 grid gap-4 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
@@ -117,8 +119,14 @@ function mostrarError(msg) {
   $('error').classList.toggle('hidden', !msg);
 }
 
+function mostrarAviso(msg) {
+  $('aviso').textContent = msg || '';
+  $('aviso').classList.toggle('hidden', !msg);
+}
+
 async function accion(fn) {
   mostrarError('');
+  mostrarAviso('');
   try { await fn(); } catch (e) { mostrarError(e.message); }
 }
 
@@ -135,6 +143,9 @@ function dibujar(estado) {
   $('registro').classList.remove('hidden');
   $('titulo').textContent = carrera.nombre;
   $('contador').textContent = competidores.length + ' de ' + carrera.cupo;
+  if (estado.repetida) {
+    mostrarAviso('Todos tuvieron un incidente: la carrera se repite con los mismos participantes. Cuando estén listos, apretá Largar.');
+  }
   const enConfig = carrera.estado === 'configuracion';
   const faltan = carrera.cupo - competidores.length;
   $('form-comp').classList.toggle('hidden', !enConfig);
