@@ -12,6 +12,15 @@
 </script>
 <style>
   @media (min-width: 1280px) { html { font-size: 20px; } }
+  /* Al imprimir o guardar como PDF quedan solo el encabezado, el podio y las tablas. */
+  @media print {
+    header, #config, #form-comp, #largada, #lista, #cronometro, #b-pista, #b-des, #error, #aviso, #nueva, .no-imprimir, button { display: none !important; }
+    body { background: #fff; }
+    main { max-width: none !important; padding: 0 !important; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .ganador { transform: none !important; box-shadow: none !important; }
+    li, #podio > div { break-inside: avoid; }
+  }
   .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
   .ganador .placa { background: #fff; }
   .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
@@ -30,6 +39,9 @@
 <header class="bg-asfalto text-white">
   <div class="mx-auto max-w-3xl px-4 py-6">
     <h1 class="text-4xl font-black italic tracking-tight" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">Carreras de dragsters</h1>
+    <a href="/proyector" target="_blank" rel="noopener" class="mt-2 inline-block font-semibold text-white/80 underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Abrir vista de proyector</a>
+    <a href="/historial" class="ml-4 mt-2 inline-block font-semibold text-white/80 underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Historial de carreras</a>
+    <button id="probar-sonido" type="button" class="ml-4 mt-2 inline-block font-semibold text-white/80 underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Probar sonido</button>
   </div>
   <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
 </header>
@@ -53,7 +65,7 @@
   </section>
 
   <section id="registro" class="hidden">
-    <div class="flex flex-wrap items-end justify-between gap-3">
+    <div class="no-imprimir flex flex-wrap items-end justify-between gap-3">
       <h2 id="titulo" class="text-2xl font-bold"></h2>
       <p class="text-lg font-semibold"><span id="contador"></span> competidores</p>
     </div>
@@ -79,6 +91,18 @@
     </div>
 
     <div id="resultados" class="hidden">
+      <div id="encabezado-impresion" class="hidden print:block">
+        <h1 id="imp-titulo" class="text-3xl font-black"></h1>
+        <p id="imp-detalle" class="mt-1 text-lg"></p>
+      </div>
+      <div id="b-podio" class="mt-8 hidden">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <h3 class="text-xl font-bold">Podio</h3>
+          <button id="imprimir" class="boton no-imprimir">Imprimir o guardar como PDF</button>
+        </div>
+        <div id="podio" class="mt-4 flex items-end gap-3"></div>
+        <p class="no-imprimir mt-2">En la ventana que se abre, elegí "Guardar como PDF" como impresora para guardar el archivo.</p>
+      </div>
       <div id="b-des" class="mt-8 hidden rounded-md border-2 border-bandera bg-white p-4">
         <h3 id="des-titulo" class="text-xl font-bold"></h3>
         <p id="des-texto" class="mt-1"></p>
@@ -98,6 +122,7 @@
   </section>
 </main>
 
+<script src="/sonido.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let carreraId = null;
@@ -161,13 +186,12 @@ function dibujar(estado) {
   $('cronometro').classList.toggle('hidden', enConfig);
   $('resultados').classList.toggle('hidden', enConfig);
   if (carrera.estado === 'en_curso') {
-    $('estado-carrera').textContent = 'Carrera en curso';
-    iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now());
+    iniciarReloj(carrera.inicio_ms, estado.ahora_ms - Date.now(), 'Carrera en curso', true);
   } else if (estado.desempate.estado === 'en_curso') {
     // Durante el desempate el reloj cuenta el desempate.
     const des = estado.desempate;
-    $('estado-carrera').textContent = 'Desempate por el ' + des.posicion + '.º puesto, intento ' + des.ronda + ' de ' + des.maximo;
-    iniciarReloj(des.inicio_ms, estado.ahora_ms - Date.now());
+    iniciarReloj(des.inicio_ms, estado.ahora_ms - Date.now(),
+      'Desempate por el ' + des.posicion + '.º puesto, intento ' + des.ronda + ' de ' + des.maximo, true);
   } else {
     detenerReloj();
     if (!enConfig) {
@@ -206,6 +230,7 @@ function dibujar(estado) {
 
 // Cronómetro: el tiempo sale del reloj del servidor, así sigue bien aunque se recargue la página.
 let relojId = null;
+let pistaBloqueada = false; // los botones de En pista se deshabilitan durante la cuenta regresiva
 function formato(ms) {
   const cent = Math.floor(ms / 10) % 100;
   const seg = Math.floor(ms / 1000) % 60;
@@ -215,11 +240,30 @@ function formato(ms) {
 function detenerReloj() {
   if (relojId) cancelAnimationFrame(relojId);
   relojId = null;
+  pistaBloqueada = false;
 }
-function iniciarReloj(inicio, desfase) {
+
+// Deshabilita (o habilita) Llegó e Incidente de En pista y del desempate.
+function bloquearPista(si) {
+  if (!si && !pistaBloqueada) return;
+  pistaBloqueada = si;
+  document.querySelectorAll('#l-pista button, #l-des button').forEach((b) => { b.disabled = si; });
+}
+// Con cuenta regresiva (carrera principal): antes de la hora de largada muestra 3, 2, 1 y deshabilita los botones;
+// en el "ya" muestra ¡YA! un instante y desde ahí cuenta el tiempo. La hora sale del servidor, así que recargar la página no la pierde.
+function iniciarReloj(inicio, desfase, etiqueta, conCuenta) {
   detenerReloj();
   const pintar = () => {
-    $('reloj').textContent = formato(Math.max(0, Date.now() + desfase - inicio));
+    const ms = Date.now() + desfase - inicio;
+    if (conCuenta) Sonido.programar(inicio, desfase); // pitido en el 3, 2, 1 y en el ya
+    if (conCuenta && ms < 0) {
+      $('reloj').textContent = String(Math.ceil(-ms / 1000));
+      $('estado-carrera').textContent = 'Preparados...';
+    } else {
+      $('reloj').textContent = conCuenta && ms < 700 ? '¡YA!' : formato(Math.max(0, ms));
+      if (conCuenta) $('estado-carrera').textContent = etiqueta;
+    }
+    if (conCuenta) bloquearPista(ms < 0);
     relojId = requestAnimationFrame(pintar);
   };
   pintar();
@@ -289,6 +333,42 @@ $('des-largar').onclick = () => accion(async () => {
   }
 });
 
+// ---- Podio: aparece con la carrera terminada y el ganador definido (sin desempate pendiente) ----
+$('imprimir').onclick = () => window.print();
+
+function dibujarPodio(estado) {
+  const c = estado.carrera;
+  const visible = c.estado === 'finalizada' && !estado.desempate.estado && estado.ganadores.length > 0;
+  $('b-podio').classList.toggle('hidden', !visible);
+  if (!visible) return;
+  // Encabezado que solo se ve al imprimir
+  const nombres = estado.competidores.filter((x) => estado.ganadores.includes(x.id)).map((x) => x.nombre).join(' y ');
+  $('imp-titulo').textContent = c.nombre + ': resultados finales';
+  $('imp-detalle').textContent = 'Fecha: ' + new Date(c.fin_ms).toLocaleString('es-AR') + '. Tiempo total: ' + formato(c.fin_ms - c.inicio_ms) +
+    '. ' + (estado.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombres + '.';
+  // Podio: 2.º a la izquierda, 1.º al centro, 3.º a la derecha (si hay empates, varios en el mismo escalón)
+  const top = estado.competidores.filter((x) => x.estado === 'llego' && !x.eliminado && x.posicion <= 3);
+  const altura = { 1: 'h-28', 2: 'h-20', 3: 'h-12' };
+  const podio = $('podio');
+  podio.replaceChildren();
+  [2, 1, 3].forEach((p) => {
+    const del = top.filter((x) => x.posicion === p).sort((a, b) => a.numero - b.numero);
+    if (!del.length) return;
+    const col = document.createElement('div');
+    col.className = 'flex flex-1 flex-col justify-end gap-2';
+    del.forEach((x) => {
+      const ficha = document.createElement('div');
+      ficha.className = 'flex flex-col items-center gap-1 rounded-md border-2 border-asfalto bg-white px-2 py-3 text-center' + (p === 1 ? ' ganador' : '');
+      ficha.appendChild(etiqueta('placa', x.numero));
+      ficha.appendChild(etiqueta('text-xl font-semibold', x.nombre));
+      ficha.appendChild(etiqueta('text-lg font-bold tabular-nums', formato(x.tiempo_ms)));
+      col.appendChild(ficha);
+    });
+    col.appendChild(etiqueta('flex items-center justify-center rounded-t-md text-4xl font-black ' + altura[p] + (p === 1 ? ' bg-placa text-asfalto' : ' bg-asfalto text-white'), p + '.º'));
+    podio.appendChild(col);
+  });
+}
+
 let ganadorVisto = null;
 
 function dibujarResultados(estado) {
@@ -314,6 +394,12 @@ function dibujarResultados(estado) {
     if (!confirm('¿Sacar a ' + c.nombre + ' de la tabla final? No se puede deshacer.')) return Promise.resolve();
     return marcar(c.id, 'eliminar');
   });
+  const deshacer = (c) => boton('Deshacer', 'font-semibold underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa', () => {
+    const que = c.estado === 'llego' ? 'Se borra su tiempo de llegada.' : 'Se quita su incidente.';
+    const reabre = estado.carrera.estado === 'finalizada' ? ' La carrera se reabre y el reloj sigue corriendo.' : '';
+    if (!confirm('¿Devolver a ' + c.nombre + ' a la pista? ' + que + reabre)) return Promise.resolve();
+    return marcar(c.id, 'deshacer');
+  });
   // El zoom sobre el ganador se anima una sola vez; después queda resaltado fijo.
   const clave = carreraId + ':' + estado.ganadores.join(',');
   const animar = hayGanador && clave !== ganadorVisto;
@@ -338,16 +424,27 @@ function dibujarResultados(estado) {
         return marcar(c.id, 'incidente');
       }));
     }
+    if (!estado.hay_desempates) partes.push(deshacer(c));
     if (puedeEliminar && !gana) partes.push(eliminar(c));
     return fila(clases, partes);
   });
 
   dibujarDesempate(estado);
+  dibujarPodio(estado);
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
     placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
-  ].concat(puedeEliminar ? [eliminar(c)] : [])));
+  ].concat(estado.hay_desempates ? [] : [deshacer(c)]).concat(puedeEliminar ? [eliminar(c)] : [])));
 }
+
+// Habilita el audio (los navegadores lo exigen) y hace sonar un pitido de prueba para ajustar el volumen.
+$('probar-sonido').onclick = () => {
+  mostrarError('');
+  Sonido.desbloquear().then(() => {
+    if (Sonido.listo()) Sonido.probar();
+    else mostrarError('Este navegador no dejó activar el sonido. Probá tocando la ventana y apretando de nuevo.');
+  });
+};
 
 $('largar').onclick = () => accion(async () => {
   $('largar').disabled = true; // evita el doble clic

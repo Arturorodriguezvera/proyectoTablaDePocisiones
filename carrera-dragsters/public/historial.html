@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial de carreras</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    asfalto: '#10233B', hormigon: '#E6E8E5', bandera: '#C8242B', placa: '#F5C400'
+  } } } };
+</script>
+<style>
+  @media (min-width: 1280px) { html { font-size: 20px; } }
+  .impact { font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .placa { display: flex; height: 3rem; width: 4rem; flex-shrink: 0; align-items: center; justify-content: center; border: 2px solid #10233B; border-radius: 0.375rem; background: #F5C400; color: #10233B; font-size: 1.75rem; font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .ganador { background: #F5C400 !important; border-width: 4px !important; }
+  .ganador .placa { background: #fff; }
+</style>
+</head>
+<body class="min-h-screen bg-hormigon text-asfalto">
+<header class="bg-asfalto text-white">
+  <div class="mx-auto max-w-6xl px-4 py-6">
+    <h1 class="impact text-4xl font-black italic tracking-tight">Historial de carreras</h1>
+    <a href="/" class="mt-2 inline-block font-semibold text-white/80 underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa">Volver a la pantalla de control</a>
+  </div>
+  <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
+</header>
+
+<main class="mx-auto max-w-6xl px-4 py-8">
+  <p id="error" role="alert" class="mb-6 hidden rounded-md border-2 border-bandera bg-white px-4 py-3 font-semibold text-bandera"></p>
+
+  <div class="grid gap-8 lg:grid-cols-[2fr_3fr]">
+    <section>
+      <h2 class="text-2xl font-bold">Carreras</h2>
+      <p id="vacio-lista" class="mt-3 hidden text-lg text-asfalto/70">Todavía no hay carreras.</p>
+      <ul id="lista" class="mt-3 space-y-2"></ul>
+    </section>
+
+    <section>
+      <p id="sin-seleccion" class="text-lg text-asfalto/70">Elegí una carrera de la lista para ver sus resultados.</p>
+      <div id="detalle" class="hidden">
+        <h2 id="d-titulo" class="text-2xl font-bold"></h2>
+        <p id="d-sub" class="mt-1 text-lg"></p>
+        <p id="d-ganador" class="mt-3 hidden rounded-md bg-asfalto px-4 py-3 text-xl font-bold text-white"></p>
+        <div id="b-pos" class="mt-6"><h3 class="text-xl font-bold">Posiciones</h3><ul id="l-pos" class="mt-2 space-y-2"></ul></div>
+        <div id="b-inc" class="mt-6"><h3 class="text-xl font-bold">Incidentes</h3><ul id="l-inc" class="mt-2 space-y-2"></ul></div>
+        <div id="b-pista" class="mt-6"><h3 class="text-xl font-bold">Sin resultado todavía</h3><ul id="l-pista" class="mt-2 space-y-2"></ul></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let carreras = [];
+let seleccionada = null;
+
+function formato(ms) {
+  const cent = Math.floor(ms / 10) % 100;
+  const seg = Math.floor(ms / 1000) % 60;
+  const min = Math.floor(ms / 60000);
+  return String(min).padStart(2, '0') + ':' + String(seg).padStart(2, '0') + '.' + String(cent).padStart(2, '0');
+}
+
+const fecha = (x) => new Date(x).toLocaleString('es-AR');
+
+function etiqueta(clases, texto) {
+  const s = document.createElement('span');
+  s.className = clases;
+  s.textContent = texto;
+  return s;
+}
+
+function mostrarError(msg) {
+  $('error').textContent = msg || '';
+  $('error').classList.toggle('hidden', !msg);
+}
+
+function resumen(c) {
+  if (c.estado === 'configuracion') return 'Sin largar';
+  if (c.estado === 'en_curso') return 'En curso';
+  if (c.ganadores.length) return (c.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + c.ganadores.join(' y ');
+  return c.empate_pendiente ? 'Terminada con un empate sin resolver' : 'Terminada sin ganador';
+}
+
+function dibujarLista() {
+  $('vacio-lista').classList.toggle('hidden', carreras.length > 0);
+  const ul = $('lista');
+  ul.replaceChildren();
+  carreras.forEach((c) => {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.className = 'block w-full rounded-md border-2 px-4 py-3 text-left focus:outline-none focus:ring-4 focus:ring-placa ' +
+      (c.id === seleccionada ? 'border-asfalto bg-placa' : 'border-asfalto/30 bg-white');
+    b.appendChild(etiqueta('block text-xl font-bold', c.nombre));
+    b.appendChild(etiqueta('block text-base text-asfalto/70', fecha(c.creada_en)));
+    b.appendChild(etiqueta('block text-lg font-semibold', resumen(c)));
+    if (c.id === seleccionada) b.setAttribute('aria-current', 'true');
+    b.onclick = () => abrir(c.id);
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+}
+
+function llenar(bloque, items, hacerFila) {
+  $('b-' + bloque).classList.toggle('hidden', items.length === 0);
+  const ul = $('l-' + bloque);
+  ul.replaceChildren();
+  items.forEach((x) => ul.appendChild(hacerFila(x)));
+}
+
+function fila(clases, hijos) {
+  const li = document.createElement('li');
+  li.className = 'flex items-center gap-4 rounded-md px-3 py-2 ' + clases;
+  hijos.forEach((h) => li.appendChild(h));
+  return li;
+}
+
+function dibujarDetalle(e) {
+  const c = e.carrera;
+  $('sin-seleccion').classList.add('hidden');
+  $('detalle').classList.remove('hidden');
+  $('d-titulo').textContent = c.nombre;
+  const estadoTexto = c.estado === 'finalizada' ? 'Terminada' : c.estado === 'en_curso' ? 'En curso' : 'Sin largar';
+  $('d-sub').textContent = fecha(c.creada_en) + ' · ' + estadoTexto +
+    (c.estado === 'finalizada' ? ' · Tiempo total: ' + formato(c.fin_ms - c.inicio_ms) : '');
+  const nombres = e.competidores.filter((x) => e.ganadores.includes(x.id)).map((x) => x.nombre);
+  $('d-ganador').textContent = nombres.length ? (nombres.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombres.join(' y ') : '';
+  $('d-ganador').classList.toggle('hidden', nombres.length === 0);
+
+  const vivos = e.competidores.filter((x) => !x.eliminado); // los eliminados de la tabla final no se muestran
+  const placa = (x) => etiqueta('placa', x.numero);
+  const nombre = (x) => etiqueta('flex-1 text-xl font-semibold', x.nombre);
+  llenar('pos', vivos.filter((x) => x.estado === 'llego')
+    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero), (x) => {
+    const gana = e.ganadores.includes(x.id);
+    return fila('border-2 border-asfalto bg-white' + (gana ? ' ganador' : ''), [
+      etiqueta('w-12 text-4xl font-black tabular-nums', x.posicion), placa(x), nombre(x),
+      etiqueta('text-2xl font-bold tabular-nums', formato(x.tiempo_ms)),
+    ]);
+  });
+  llenar('inc', vivos.filter((x) => x.estado === 'incidente'), (x) =>
+    fila('border-2 border-bandera bg-white', [placa(x), nombre(x), etiqueta('font-bold text-bandera', 'Incidente')]));
+  llenar('pista', vivos.filter((x) => x.estado === 'en_carrera'), (x) =>
+    fila('border-2 border-dashed border-asfalto/40', [placa(x), nombre(x)]));
+}
+
+async function abrir(id) {
+  mostrarError('');
+  try {
+    const r = await fetch('/api/carreras/' + id);
+    if (!r.ok) throw new Error('No se encontró esa carrera.');
+    const e = await r.json();
+    seleccionada = id;
+    location.hash = id; // así se puede recargar la página y seguir viendo la misma carrera
+    dibujarLista();
+    dibujarDetalle(e);
+  } catch (err) {
+    mostrarError(err.message === 'No se encontró esa carrera.' ? err.message : 'No se pudo conectar con el servidor.');
+  }
+}
+
+async function iniciar() {
+  try {
+    const r = await fetch('/api/carreras');
+    if (!r.ok) throw new Error('lista');
+    carreras = await r.json();
+    dibujarLista();
+    const id = Number(location.hash.slice(1));
+    if (id) await abrir(id);
+  } catch (err) {
+    mostrarError('No se pudo conectar con el servidor.');
+  }
+}
+
+iniciar();
+</script>
+</body>
+</html>

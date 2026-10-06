@@ -5,6 +5,9 @@ const path = require('path');
 const pool = require('./db');
 const { calcular, MAX_RONDAS } = require('./posiciones');
 
+// Cuenta regresiva antes de cada largada (3, 2, 1). Se puede cambiar con CUENTA_REGRESIVA_MS en el .env; 0 la desactiva.
+const CUENTA_REGRESIVA_MS = process.env.CUENTA_REGRESIVA_MS === undefined ? 3000 : Number(process.env.CUENTA_REGRESIVA_MS);
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -85,6 +88,35 @@ app.post('/api/carreras', ah(async (req, res) => {
   res.status(201).json(await cargar(r.insertId));
 }));
 
+// ---- Etapa 12: historial de carreras ----
+app.get('/historial', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'historial.html')));
+
+// Las 50 carreras más recientes, con su resumen (ganador/es incluido).
+app.get('/api/carreras', ah(async (req, res) => {
+  const [filas] = await pool.query('SELECT id FROM carreras ORDER BY id DESC LIMIT 50');
+  const lista = [];
+  for (const f of filas) {
+    const e = await cargar(f.id);
+    lista.push({
+      id: e.carrera.id, nombre: e.carrera.nombre, estado: e.carrera.estado, cupo: e.carrera.cupo,
+      creada_en: e.carrera.creada_en, inicio_ms: e.carrera.inicio_ms, fin_ms: e.carrera.fin_ms,
+      empate_pendiente: Boolean(e.desempate.estado),
+      ganadores: e.competidores.filter((c) => e.ganadores.includes(c.id)).map((c) => c.nombre),
+    });
+  }
+  res.json(lista);
+}));
+
+// ---- Etapa 9: vista de proyector ----
+app.get('/proyector', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'proyector.html')));
+
+// La carrera más reciente: es la que muestra el proyector. Va antes de /:id para que no se confunda.
+app.get('/api/carreras/actual', ah(async (req, res) => {
+  const [[ultima]] = await pool.query('SELECT id FROM carreras ORDER BY id DESC LIMIT 1');
+  if (!ultima) throw new HttpError(404, 'Todavía no hay ninguna carrera');
+  res.json(await cargar(ultima.id));
+}));
+
 app.get('/api/carreras/:id', ah(async (req, res) => {
   res.json(await cargar(entero(req.params.id, 'Id')));
 }));
@@ -141,7 +173,7 @@ app.post('/api/carreras/:id/largada', ah(async (req, res) => {
   // El reloj del servidor es la referencia de todos los tiempos.
   const [r] = await pool.query(
     "UPDATE carreras SET estado = 'en_curso', inicio_ms = ? WHERE id = ? AND estado = 'configuracion' AND (SELECT COUNT(*) FROM competidores WHERE carrera_id = ?) = cupo",
-    [Date.now(), id, id]);
+    [Date.now() + CUENTA_REGRESIVA_MS, id, id]); // inicio_ms queda en el futuro: el reloj arranca en el "ya"
   if (!r.affectedRows) throw new HttpError(409, 'No se pudo largar: revisá la lista de competidores');
   res.json(await cargar(id));
 }));
@@ -186,6 +218,7 @@ app.post('/api/carreras/:id/competidores/:cid/llegada', ah(async (req, res) => {
   const cid = entero(req.params.cid, 'Competidor');
   const { carrera } = await cargar(id);
   if (carrera.estado !== 'en_curso') throw new HttpError(409, 'La carrera no está en curso');
+  if (Date.now() < carrera.inicio_ms) throw new HttpError(409, 'Todavía no largó: esperá el ¡ya!');
   const tiempo = Date.now() - carrera.inicio_ms; // el reloj del servidor es la referencia
   const [r] = await pool.query(
     "UPDATE competidores SET estado = 'llego', tiempo_ms = ? WHERE id = ? AND carrera_id = ? AND estado = 'en_carrera'",
@@ -200,6 +233,7 @@ app.post('/api/carreras/:id/competidores/:cid/incidente', ah(async (req, res) =>
   const cid = entero(req.params.cid, 'Competidor');
   const { carrera, desempate, hay_desempates: hayDesempates } = await cargar(id);
   if (carrera.estado === 'configuracion') throw new HttpError(409, 'La carrera todavía no largó');
+  if (Date.now() < carrera.inicio_ms) throw new HttpError(409, 'Todavía no largó: esperá el ¡ya!');
   if (hayDesempates || desempate.estado) {
     throw new HttpError(409, 'Hay un desempate en marcha: ya no se pueden marcar incidentes de la carrera');
   }
@@ -222,7 +256,7 @@ app.post('/api/carreras/:id/desempate/iniciar', ah(async (req, res) => {
     await conn.beginTransaction();
     const [d] = await conn.query(
       'INSERT INTO desempates (carrera_id, posicion, ronda, inicio_ms) VALUES (?, ?, ?, ?)',
-      [id, desempate.posicion, desempate.ronda, Date.now()]);
+      [id, desempate.posicion, desempate.ronda, Date.now() + CUENTA_REGRESIVA_MS]);
     await conn.query(
       'INSERT INTO desempate_participantes (desempate_id, competidor_id) VALUES ?',
       [desempate.participantes.map((c) => [d.insertId, c.id])]);
@@ -243,6 +277,7 @@ function marcarDesempate(nuevoEstado) {
     const cid = entero(req.params.cid, 'Competidor');
     const { desempate } = await cargar(id);
     if (desempate.estado !== 'en_curso') throw new HttpError(409, 'No hay un desempate en curso');
+    if (Date.now() < desempate.inicio_ms) throw new HttpError(409, 'Todavía no largó el desempate: esperá el ¡ya!');
     const tiempo = nuevoEstado === 'llego' ? Date.now() - desempate.inicio_ms : null;
     const [r] = await pool.query(
       "UPDATE desempate_participantes dp JOIN desempates d ON d.id = dp.desempate_id SET dp.estado = ?, dp.tiempo_ms = ? WHERE d.carrera_id = ? AND d.posicion = ? AND d.ronda = ? AND dp.competidor_id = ? AND dp.estado = 'en_carrera'",
@@ -253,6 +288,22 @@ function marcarDesempate(nuevoEstado) {
 }
 app.post('/api/carreras/:id/desempate/:cid/llegada', marcarDesempate('llego'));
 app.post('/api/carreras/:id/desempate/:cid/incidente', marcarDesempate('incidente'));
+
+// ---- Etapa 8: deshacer una llegada o un incidente ----
+app.post('/api/carreras/:id/competidores/:cid/deshacer', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { carrera, hay_desempates: hayDesempates } = await cargar(id);
+  if (carrera.estado === 'configuracion') throw new HttpError(409, 'La carrera todavía no largó');
+  if (hayDesempates) throw new HttpError(409, 'Ya largó un desempate: no se puede deshacer');
+  const [r] = await pool.query(
+    "UPDATE competidores SET estado = 'en_carrera', tiempo_ms = NULL WHERE id = ? AND carrera_id = ? AND eliminado = 0 AND estado <> 'en_carrera'",
+    [cid, id]);
+  if (!r.affectedRows) throw new HttpError(409, 'Ese competidor ya está en pista');
+  // Si la carrera ya había terminado, se reabre y el reloj sigue contando desde la largada.
+  await pool.query("UPDATE carreras SET estado = 'en_curso', fin_ms = NULL WHERE id = ? AND estado = 'finalizada'", [id]);
+  res.json(await cargar(id));
+}));
 
 // ---- Etapa 6: eliminación manual (con la carrera terminada y el ganador definido) ----
 app.post('/api/carreras/:id/competidores/:cid/eliminar', ah(async (req, res) => {

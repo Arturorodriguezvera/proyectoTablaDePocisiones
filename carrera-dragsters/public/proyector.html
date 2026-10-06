@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carreras de dragsters: proyector</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    asfalto: '#10233B', hormigon: '#E6E8E5', bandera: '#C8242B', placa: '#F5C400'
+  } } } };
+</script>
+<style>
+  /* Todo se mide en rem: la pantalla crece con el ancho del proyector. */
+  html { font-size: clamp(16px, 1.5vw, 30px); }
+  .impact { font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .placa { display: flex; height: 3rem; width: 4.5rem; flex-shrink: 0; align-items: center; justify-content: center; border: 2px solid #10233B; border-radius: 0.375rem; background: #F5C400; color: #10233B; font-size: 2rem; font-family: Impact, 'Arial Narrow Bold', sans-serif; }
+  .ganador { background: #F5C400 !important; border-width: 4px !important; transform: scale(1.03); box-shadow: 0 10px 25px rgba(16, 35, 59, 0.35); }
+  .ganador .placa { background: #fff; }
+  .ganador-anim { animation: zoom-ganador 0.9s ease-out; }
+  @keyframes zoom-ganador { 0% { transform: scale(1); } 55% { transform: scale(1.09); } 100% { transform: scale(1.03); } }
+  @media (prefers-reduced-motion: reduce) { .ganador-anim { animation: none; } }
+</style>
+</head>
+<body class="min-h-screen bg-hormigon text-asfalto">
+<!-- Cuenta regresiva a pantalla completa: 3, 2, 1 y ¡YA! -->
+<div id="cuenta" class="impact fixed inset-0 z-10 items-center justify-center bg-asfalto" style="display: none" aria-hidden="true">
+  <span id="cuenta-texto" class="text-white" style="font-size: 45vh; line-height: 1"></span>
+</div>
+<header class="bg-asfalto text-white">
+  <div class="flex items-baseline justify-between gap-4 px-8 py-4">
+    <h1 id="titulo" class="impact text-4xl font-black italic tracking-tight">Carreras de dragsters</h1>
+    <p id="conexion" class="hidden rounded-md bg-white px-3 py-1 font-semibold text-bandera">Sin conexión con el servidor</p>
+  </div>
+  <div class="h-3" style="background: repeating-conic-gradient(#fff 0% 25%, #10233B 0% 50%) 0 0 / 24px 24px"></div>
+</header>
+
+<main class="grid gap-8 p-8 lg:grid-cols-[2fr_3fr]">
+  <section class="self-start rounded-md bg-asfalto p-8 text-white">
+    <p id="estado" class="text-xl font-semibold text-white/70">Conectando...</p>
+    <p id="reloj" class="impact whitespace-nowrap text-7xl tabular-nums">00:00.00</p>
+    <p id="detalle" class="mt-2 text-2xl font-semibold"></p>
+  </section>
+
+  <section>
+    <div id="b-part" class="hidden">
+      <h2 class="text-2xl font-bold">Participantes</h2>
+      <ul id="participantes" class="mt-3 grid gap-2"></ul>
+      <p id="sin-part" class="mt-3 text-2xl text-asfalto/60">Todavía no se anotó nadie.</p>
+    </div>
+    <div id="b-podio" class="mb-8 hidden">
+      <h2 class="text-2xl font-bold">Podio</h2>
+      <div id="podio" class="mt-4 flex items-end gap-4"></div>
+    </div>
+    <div id="b-lista">
+      <h2 id="titulo-lista" class="text-2xl font-bold">Posiciones</h2>
+      <ul id="posiciones" class="mt-3 space-y-2"></ul>
+      <p id="vacio" class="mt-3 text-2xl text-asfalto/60">Todavía nadie cruzó la meta.</p>
+    </div>
+  </section>
+</main>
+
+<script src="/sonido.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let estado = null;
+let desfase = 0; // diferencia entre el reloj del servidor y el de esta compu
+let firma = '';
+let ganadorVisto = null;
+let etiquetaBase = ''; // texto de estado; durante la cuenta regresiva se reemplaza
+
+function formato(ms) {
+  const cent = Math.floor(ms / 10) % 100;
+  const seg = Math.floor(ms / 1000) % 60;
+  const min = Math.floor(ms / 60000);
+  return String(min).padStart(2, '0') + ':' + String(seg).padStart(2, '0') + '.' + String(cent).padStart(2, '0');
+}
+
+function etiqueta(clases, texto) {
+  const s = document.createElement('span');
+  s.className = clases;
+  s.textContent = texto;
+  return s;
+}
+
+// Podio: cuando la carrera terminó y el ganador está definido. El zoom del ganador se muestra una sola vez.
+function dibujarPodio(llegaron, decidido, animar) {
+  $('b-podio').classList.toggle('hidden', !decidido);
+  if (!decidido) return;
+  const altura = { 1: 'h-40', 2: 'h-28', 3: 'h-20' };
+  const podio = $('podio');
+  podio.replaceChildren();
+  [2, 1, 3].forEach((p) => { // 2.º a la izquierda, 1.º al centro, 3.º a la derecha
+    const del = llegaron.filter((x) => x.posicion === p);
+    if (!del.length) return;
+    const col = document.createElement('div');
+    col.className = 'flex flex-1 flex-col justify-end gap-3';
+    del.forEach((x) => {
+      const ficha = document.createElement('div');
+      ficha.className = 'flex flex-col items-center gap-2 rounded-md border-2 border-asfalto bg-white px-3 py-4 text-center' +
+        (p === 1 ? ' ganador' + (animar ? ' ganador-anim' : '') : '');
+      ficha.appendChild(etiqueta('placa', x.numero));
+      ficha.appendChild(etiqueta('text-3xl font-semibold', x.nombre));
+      ficha.appendChild(etiqueta('text-2xl font-bold tabular-nums', formato(x.tiempo_ms)));
+      col.appendChild(ficha);
+    });
+    col.appendChild(etiqueta('flex items-center justify-center rounded-t-md text-5xl font-black ' + altura[p] + (p === 1 ? ' bg-placa text-asfalto' : ' bg-asfalto text-white'), p + '.º'));
+    podio.appendChild(col);
+  });
+}
+
+// Antes de largar: los competidores anotados hasta el momento (ordenados por número, como en la pantalla de control).
+// Con más participantes se reparten en más columnas (8 filas por columna, hasta 4) para que entren en la pantalla.
+function dibujarParticipantes(competidores) {
+  const n = competidores.length;
+  const columnas = Math.min(4, Math.max(1, Math.ceil(n / 8)));
+  const ul = $('participantes');
+  ul.style.gridTemplateColumns = 'repeat(' + columnas + ', minmax(0, 1fr))';
+  ul.replaceChildren();
+  $('sin-part').classList.toggle('hidden', n > 0);
+  competidores.forEach((x) => {
+    const li = document.createElement('li');
+    li.className = 'flex items-center gap-4 rounded-md border-2 border-asfalto bg-white px-4 py-2';
+    li.appendChild(etiqueta('placa', x.numero));
+    li.appendChild(etiqueta('min-w-0 flex-1 truncate font-semibold ' + (columnas === 1 ? 'text-3xl' : 'text-2xl'), x.nombre));
+    ul.appendChild(li);
+  });
+}
+
+function dibujar(e) {
+  const c = e.carrera;
+  const d = e.desempate;
+  const llegaron = e.competidores.filter((x) => x.estado === 'llego' && !x.eliminado)
+    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero);
+  const enPista = e.competidores.filter((x) => x.estado === 'en_carrera').length;
+  const nombresGanadores = e.competidores.filter((x) => e.ganadores.includes(x.id)).map((x) => x.nombre).join(' y ');
+
+  const config = c.estado === 'configuracion'; // todavía no largó: se muestran los participantes en vez de las posiciones
+  $('b-part').classList.toggle('hidden', !config);
+  if (config) dibujarParticipantes(e.competidores);
+
+  $('titulo').textContent = c.nombre;
+  let estadoTexto = 'Carrera terminada';
+  let detalle = e.ganadores.length ? (e.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombresGanadores : '';
+  if (c.estado === 'configuracion') {
+    estadoTexto = 'Esperando la largada';
+    detalle = e.competidores.length + ' de ' + c.cupo + ' competidores anotados';
+  } else if (c.estado === 'en_curso') {
+    estadoTexto = 'Carrera en curso';
+    detalle = enPista + (enPista === 1 ? ' auto en pista' : ' autos en pista');
+  } else if (d.estado === 'en_curso') {
+    estadoTexto = 'Desempate por el ' + d.posicion + '.º puesto, intento ' + d.ronda + ' de ' + d.maximo;
+    detalle = d.participantes.map((p) => p.nombre).join(' y ');
+  } else if (d.estado === 'iniciar') {
+    estadoTexto = 'Empate por el ' + d.posicion + '.º puesto';
+    detalle = 'Falta largar el desempate';
+  }
+  etiquetaBase = estadoTexto;
+  $('estado').textContent = estadoTexto;
+  $('detalle').textContent = detalle;
+
+  // Posiciones
+  const hayGanador = e.ganadores.length > 0;
+  const clave = c.id + ':' + e.ganadores.join(',');
+  const animar = hayGanador && clave !== ganadorVisto; // el zoom se muestra una sola vez
+  if (hayGanador) ganadorVisto = clave;
+  const decidido = c.estado === 'finalizada' && !d.estado && hayGanador; // carrera terminada y ganador definido: se muestra el podio
+  dibujarPodio(llegaron, decidido, animar);
+  const lista = decidido ? llegaron.filter((x) => x.posicion > 3) : llegaron; // con podio, abajo queda del 4.º en adelante
+  $('b-lista').classList.toggle('hidden', config || (decidido && lista.length === 0));
+  $('titulo-lista').textContent = decidido ? 'Resto de las posiciones' : 'Posiciones';
+  $('vacio').classList.toggle('hidden', lista.length > 0);
+  const ul = $('posiciones');
+  ul.replaceChildren();
+  lista.forEach((x) => {
+    const gana = e.ganadores.includes(x.id);
+    const li = document.createElement('li');
+    li.className = 'flex items-center gap-4 rounded-md border-2 border-asfalto bg-white px-4 py-2' +
+      (gana ? ' ganador' + (animar ? ' ganador-anim' : '') : hayGanador ? ' opacity-70' : '');
+    li.appendChild(etiqueta('w-14 text-5xl font-black tabular-nums', x.posicion));
+    li.appendChild(etiqueta('placa', x.numero));
+    li.appendChild(etiqueta('flex-1 text-3xl font-semibold', x.nombre));
+    if (gana) li.appendChild(etiqueta('rounded-md bg-asfalto px-3 py-1 text-xl font-bold text-white', e.ganadores.length > 1 ? 'Empate en 1.º' : 'Ganador'));
+    li.appendChild(etiqueta('text-3xl font-bold tabular-nums', formato(x.tiempo_ms)));
+    ul.appendChild(li);
+  });
+}
+
+// El reloj se dibuja todo el tiempo con la hora del servidor; la información se consulta cada medio segundo.
+// Antes de la hora de largada de la carrera (o del desempate) se muestra 3, 2, 1 a pantalla completa y, en el "ya", un ¡YA! (0,7 s).
+function reloj() {
+  let cuenta = null; // texto de la cuenta regresiva, o null si no corresponde
+  let esYa = false;
+  if (estado) {
+    const c = estado.carrera;
+    const d = estado.desempate;
+    let ms = 0;
+    let inicio = null; // hora de largada de la carrera o del desempate que está corriendo
+    if (c.estado === 'en_curso') inicio = c.inicio_ms;
+    else if (d.estado === 'en_curso') inicio = d.inicio_ms;
+    if (inicio !== null) {
+      Sonido.programar(inicio, desfase); // pitido en el 3, 2, 1 y en el ya (cada uno se programa una sola vez)
+      ms = Date.now() + desfase - inicio;
+      if (ms < 0) cuenta = String(Math.ceil(-ms / 1000));
+      else if (ms < 700) { cuenta = '¡YA!'; esYa = true; }
+      $('estado').textContent = ms < 0 ? 'Preparados...' : etiquetaBase;
+    } else if (c.estado === 'finalizada') ms = c.fin_ms - c.inicio_ms;
+    $('reloj').textContent = formato(Math.max(0, ms));
+  }
+  $('cuenta').style.display = cuenta === null ? 'none' : 'flex';
+  if (cuenta !== null) {
+    $('cuenta-texto').textContent = cuenta;
+    $('cuenta-texto').className = esYa ? 'text-placa' : 'text-white';
+  }
+  requestAnimationFrame(reloj);
+}
+
+// Hora de largada de la carrera o del desempate que está corriendo (null si no hay ninguno).
+function inicioActual() {
+  if (!estado) return null;
+  if (estado.carrera.estado === 'en_curso') return estado.carrera.inicio_ms;
+  if (estado.desempate.estado === 'en_curso') return estado.desempate.inicio_ms;
+  return null;
+}
+
+async function consultar() {
+  try {
+    const r = await fetch('/api/carreras/actual');
+    if (r.status === 404) {
+      estado = null;
+      $('estado').textContent = 'Todavía no hay ninguna carrera';
+    } else if (r.ok) {
+      const e = await r.json();
+      desfase = e.ahora_ms - Date.now();
+      estado = e;
+      // El sonido se programa apenas llega la información, sin esperar al próximo cuadro de la pantalla.
+      const ini = inicioActual();
+      if (ini !== null) Sonido.programar(ini, desfase);
+      // Solo se vuelve a dibujar si algo cambió (así no se repite la animación del ganador).
+      const nueva = JSON.stringify([e.carrera, e.competidores, e.ganadores, e.desempate]);
+      if (nueva !== firma) {
+        firma = nueva;
+        dibujar(e);
+      }
+    } else {
+      throw new Error('respuesta ' + r.status);
+    }
+    $('conexion').classList.add('hidden');
+  } catch (err) {
+    $('conexion').classList.remove('hidden');
+  }
+  setTimeout(consultar, 500); // tan seguido para no perderse el 3 de la cuenta
+}
+
+reloj();
+consultar();
+</script>
+</body>
+</html>
