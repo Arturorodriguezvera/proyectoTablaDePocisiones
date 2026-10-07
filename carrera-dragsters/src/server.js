@@ -352,6 +352,14 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
+// Abre la pantalla de control en el navegador. Solo se usa si ABRIR_NAVEGADOR=1 (lo pone iniciar.bat).
+function abrirNavegador(url) {
+  const { exec } = require('child_process');
+  const comando = process.platform === 'win32' ? 'start "" "' + url + '"'
+    : process.platform === 'darwin' ? 'open "' + url + '"' : 'xdg-open "' + url + '"';
+  exec(comando, () => {}); // si no se pudo abrir, no pasa nada: la dirección ya salió en la consola
+}
+
 async function iniciar() {
   try {
     const [[fila]] = await pool.query('SELECT DATABASE() AS db');
@@ -364,7 +372,10 @@ async function iniciar() {
     console.error('  Revisá el archivo .env y que hayas ejecutado database/schema.sql');
     process.exit(1);
   }
-  app.listen(PORT, () => console.log('✔ Servidor en http://localhost:' + PORT));
+  app.listen(PORT, () => {
+    console.log('✔ Servidor en http://localhost:' + PORT);
+    if (process.env.ABRIR_NAVEGADOR === '1' && /^\d+$/.test(String(PORT))) abrirNavegador('http://localhost:' + PORT);
+  });
 }
 
 iniciar();

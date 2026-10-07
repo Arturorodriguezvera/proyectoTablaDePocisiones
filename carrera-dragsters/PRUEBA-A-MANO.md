@@ -52,6 +52,10 @@ Marcá cada punto con una X cuando te salga bien.
 26. [ ] Largá la carrera y, con alguien todavía en pista, apretá el lápiz ✎ de otro competidor y corregí su nombre: el reloj sigue corriendo y nadie pierde su tiempo. Hacé lo mismo con uno que ya llegó y con uno con incidente.
 27. [ ] Con la carrera terminada y el podio a la vista, corregí el nombre del ganador: cambia en el podio, en las posiciones, en el proyector y en el historial, y los tiempos y puestos siguen iguales.
 
+## I. Inicio con doble clic
+28. [ ] Cerrá el servidor y la cmd. Con MySQL prendido, hacé doble clic en `iniciar.bat`: se abre una ventana negra con "Servidor en http://localhost:3000" y enseguida el navegador con la pantalla de control.
+29. [ ] Cerrá la ventana negra: la página deja de responder. Volvé a abrir `iniciar.bat` y confirmá que la carrera que tenías sigue ahí.
+
 ## Si algo falla
 Anotá el número del punto, sacale una captura a la pantalla (control y proyector si se puede) y, si hay un
 cartel rojo o una ventana negra con un error, copiá también ese mensaje.

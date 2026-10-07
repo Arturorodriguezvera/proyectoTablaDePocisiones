@@ -104,6 +104,13 @@
   - El proyector y el historial muestran el dato corregido solos (leen de la base). Los botones no se imprimen.
   - No cambia la base de datos.
   - Pruebas nuevas en `test/api.test.js` (2 casos: edición y validaciones; edición en curso y terminada sin alterar tiempos ni puestos). Probado además con una base y una pantalla simuladas. Falta verlo en el navegador real: ver los puntos 23 a 27 de `PRUEBA-A-MANO.md`.
+- [x] **Extra: iniciar con doble clic.** El archivo `iniciar.bat` (en la carpeta `carrera-dragsters`) reemplaza el paso de abrir la cmd y escribir `npm start`.
+  - Revisa que estén Node.js y el archivo `.env`, corre `npm install` solo la primera vez, prende el servidor y abre la pantalla de control en el navegador cuando está listo. La ventana negra que queda abierta **es el servidor**: para apagarlo se cierra.
+  - Si el servidor no puede usar la base de datos, la ventana queda abierta con el mensaje (casi siempre es que MySQL no está prendido o falta revisar el `.env`).
+  - MySQL tiene que estar prendido antes (si no arranca solo con Windows, hay que prenderlo a mano). `npm start` sigue funcionando igual que siempre.
+  - En `src/server.js`, el servidor abre el navegador solo si existe la variable `ABRIR_NAVEGADOR=1`, que pone `iniciar.bat`. Usa el puerto del `.env`.
+  - Para tenerlo en el escritorio: clic derecho sobre `iniciar.bat`, Enviar a, Escritorio (crear acceso directo).
+  - No cambia la base de datos.
 - [ ] Más adelante: sensor de llegada.
 
 ## Etapa 1: cómo correrla
