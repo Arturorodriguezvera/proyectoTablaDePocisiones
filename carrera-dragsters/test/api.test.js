@@ -380,6 +380,68 @@ caso('historial: lista las carreras (la más nueva primero) con su ganador y sir
   assert.ok((await r.text()).includes('Historial de carreras'));
 });
 
+caso('editar: corrige nombre y número, valida y no deja repetir números', async () => {
+  const { id, ids } = await nueva(3); // P1/1, P2/2, P3/3
+  const url = (cid) => '/api/carreras/' + id + '/competidores/' + cid;
+  // Cambia nombre y número (se recortan los espacios) y la lista se reordena por número.
+  let e = await bien('PUT', url(ids[0]), { nombre: '  Ana  ', numero: 9 });
+  const ana = e.competidores.find((c) => c.id === ids[0]);
+  assert.strictEqual(ana.nombre, 'Ana');
+  assert.strictEqual(ana.numero, 9);
+  assert.deepStrictEqual(e.competidores.map((c) => c.numero), [2, 3, 9]);
+  // Cambiar solo el nombre (mismo número) vale.
+  e = await bien('PUT', url(ids[1]), { nombre: 'Beto', numero: 2 });
+  assert.strictEqual(e.competidores.find((c) => c.id === ids[1]).nombre, 'Beto');
+  // Número repetido, datos inválidos y competidores que no existen o son de otra carrera.
+  await falla('PUT', url(ids[1]), 409, { nombre: 'Beto', numero: 3 });
+  await falla('PUT', url(ids[1]), 400, { nombre: '   ', numero: 2 });
+  await falla('PUT', url(ids[1]), 400, { nombre: 'x'.repeat(81), numero: 2 });
+  await falla('PUT', url(ids[1]), 400, { nombre: 'Beto', numero: 0 });
+  await falla('PUT', url(ids[1]), 400, { nombre: 'Beto', numero: 10000 });
+  await falla('PUT', url(ids[1]), 400, { nombre: 'Beto', numero: 2.5 });
+  await falla('PUT', url(999999999), 404, { nombre: 'Beto', numero: 2 });
+  const otra = await nueva(2);
+  await falla('PUT', '/api/carreras/' + otra.id + '/competidores/' + ids[1], 404, { nombre: 'Beto', numero: 2 });
+  // Lo rechazado no cambió nada.
+  e = await estado(id);
+  assert.deepStrictEqual(e.competidores.map((c) => [c.nombre, c.numero]), [['Beto', 2], ['P3', 3], ['Ana', 9]]);
+});
+
+caso('editar: se puede con la carrera en curso y terminada, sin cambiar tiempos ni puestos', async () => {
+  const { id, ids } = await nueva(3);
+  const url = (cid) => '/api/carreras/' + id + '/competidores/' + cid;
+  await largar(id);
+  await llegar(id, ids[1]);
+  // En curso: corrige a uno que sigue en pista.
+  let e = await bien('PUT', url(ids[0]), { nombre: 'Ana', numero: 11 });
+  assert.strictEqual(e.carrera.estado, 'en_curso');
+  assert.strictEqual(e.competidores.find((c) => c.id === ids[0]).estado, 'en_carrera');
+  await llegar(id, ids[0]);
+  await incidente(id, ids[2]);
+  const antes = await estado(id);
+  assert.strictEqual(antes.carrera.estado, 'finalizada');
+  // Terminada: corrige al que llegó primero y al del incidente.
+  await bien('PUT', url(ids[1]), { nombre: 'Beto', numero: 22 });
+  e = await bien('PUT', url(ids[2]), { nombre: 'Cami', numero: 33 });
+  const por = (cid) => e.competidores.find((c) => c.id === cid);
+  assert.strictEqual(por(ids[1]).nombre, 'Beto');
+  assert.strictEqual(por(ids[1]).numero, 22);
+  assert.strictEqual(por(ids[2]).estado, 'incidente');
+  assert.strictEqual(por(ids[1]).tiempo_ms, antes.competidores.find((c) => c.id === ids[1]).tiempo_ms);
+  assert.strictEqual(por(ids[1]).posicion, 1);
+  assert.strictEqual(por(ids[0]).posicion, 2);
+  assert.deepStrictEqual(e.ganadores, [ids[1]]);
+  assert.strictEqual(e.carrera.estado, 'finalizada');
+  // El proyector y el historial muestran el nombre corregido.
+  const actual = await bien('GET', '/api/carreras/actual');
+  assert.ok(actual.competidores.some((c) => c.nombre === 'Beto' && c.numero === 22));
+  const lista = await bien('GET', '/api/carreras');
+  assert.deepStrictEqual(lista.find((c) => c.id === id).ganadores, ['Beto']);
+  // Un competidor eliminado de la tabla final ya no se edita.
+  await bien('POST', ruta(id, ids[0], 'eliminar'));
+  await falla('PUT', url(ids[0]), 404, { nombre: 'Ana', numero: 11 });
+});
+
 (async () => {
   let fallas = 0;
   for (const [nombre, fn] of casos) {

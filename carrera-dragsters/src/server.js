@@ -121,14 +121,20 @@ app.get('/api/carreras/:id', ah(async (req, res) => {
   res.json(await cargar(entero(req.params.id, 'Id')));
 }));
 
-app.post('/api/carreras/:id/competidores', ah(async (req, res) => {
-  const id = entero(req.params.id, 'Id');
-  const nombre = String(req.body.nombre || '').trim();
-  const numero = Number(req.body.numero);
+// Valida y limpia el nombre y el número de un competidor (sirve para el alta y para la edición).
+function datosCompetidor(cuerpo) {
+  const nombre = String(cuerpo.nombre || '').trim();
+  const numero = Number(cuerpo.numero);
   if (!nombre || nombre.length > 80) throw new HttpError(400, 'Escribí el nombre del competidor (hasta 80 letras)');
   if (!Number.isInteger(numero) || numero < 1 || numero > 9999) {
     throw new HttpError(400, 'El número tiene que ser un entero entre 1 y 9999');
   }
+  return { nombre, numero };
+}
+
+app.post('/api/carreras/:id/competidores', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const { nombre, numero } = datosCompetidor(req.body);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -160,6 +166,25 @@ app.delete('/api/carreras/:id/competidores/:cid', ah(async (req, res) => {
   const { carrera } = await cargar(id);
   if (carrera.estado !== 'configuracion') throw new HttpError(409, 'La carrera ya largó: no se pueden quitar competidores');
   await pool.query('DELETE FROM competidores WHERE id = ? AND carrera_id = ?', [cid, id]);
+  res.json(await cargar(id));
+}));
+
+// ---- Etapa 15: editar competidores ----
+// Corrige el nombre o el número de un competidor (por ejemplo, si se escribió mal). Se puede en cualquier momento de la
+// carrera: no cambia tiempos, llegadas ni puestos. El número no puede repetirse dentro de la carrera.
+app.put('/api/carreras/:id/competidores/:cid', ah(async (req, res) => {
+  const id = entero(req.params.id, 'Id');
+  const cid = entero(req.params.cid, 'Competidor');
+  const { nombre, numero } = datosCompetidor(req.body);
+  const [[existe]] = await pool.query(
+    'SELECT id FROM competidores WHERE id = ? AND carrera_id = ? AND eliminado = 0', [cid, id]);
+  if (!existe) throw new HttpError(404, 'Competidor no encontrado');
+  try {
+    await pool.query('UPDATE competidores SET nombre = ?, numero = ? WHERE id = ? AND carrera_id = ?', [nombre, numero, cid, id]);
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') throw new HttpError(409, 'Ya hay un competidor con el número ' + numero);
+    throw e;
+  }
   res.json(await cargar(id));
 }));
 

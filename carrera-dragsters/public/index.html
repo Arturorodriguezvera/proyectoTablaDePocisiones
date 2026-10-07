@@ -162,6 +162,67 @@ function fila(clases, hijos) {
   return li;
 }
 
+// ---- Etapa 15: editar competidores ----
+// "Editar" cambia la fila por dos campos (número y nombre) con Guardar y Cancelar. Enter guarda y Escape cancela.
+// Se puede en cualquier momento: no cambia tiempos ni puestos. Si el servidor rechaza el cambio (por ejemplo, número repetido),
+// el aviso sale arriba y la fila sigue abierta para corregirlo.
+function botonEditar(c, compacto) {
+  const b = document.createElement('button');
+  b.className = 'font-semibold focus:outline-none focus:ring-4 focus:ring-placa' + (compacto ? ' px-2 text-xl' : ' underline underline-offset-4');
+  b.textContent = compacto ? '\u270E' : 'Editar';
+  b.setAttribute('aria-label', 'Editar a ' + c.nombre);
+  b.title = 'Editar nombre o número';
+  b.onclick = () => editarFila(b.closest('li'), c);
+  return b;
+}
+
+function editarFila(li, c) {
+  const antes = Array.from(li.childNodes); // para volver atrás con Cancelar
+  const campo = (tipo, valor, clases, aria) => {
+    const i = document.createElement('input');
+    i.type = tipo;
+    i.value = valor;
+    i.required = true;
+    i.className = 'campo !mt-0 ' + clases;
+    i.setAttribute('aria-label', aria);
+    return i;
+  };
+  const numero = campo('number', c.numero, '!w-28', 'Número de ' + c.nombre);
+  numero.min = 1;
+  numero.max = 9999;
+  numero.setAttribute('inputmode', 'numeric');
+  const nombre = campo('text', c.nombre, 'min-w-0 flex-1', 'Nombre de ' + c.nombre);
+  nombre.maxLength = 80;
+
+  const guardar = document.createElement('button');
+  guardar.className = 'boton';
+  guardar.textContent = 'Guardar';
+  const cancelar = document.createElement('button');
+  cancelar.className = 'font-semibold underline underline-offset-4 focus:outline-none focus:ring-4 focus:ring-placa';
+  cancelar.textContent = 'Cancelar';
+
+  const volver = () => { li.classList.remove('flex-wrap'); li.replaceChildren(...antes); };
+  const enviar = () => {
+    guardar.disabled = true; // evita el doble clic
+    accion(async () => {
+      dibujar(await api('PUT', '/api/carreras/' + carreraId + '/competidores/' + c.id, { nombre: nombre.value, numero: numero.value }));
+    }).finally(() => { guardar.disabled = false; });
+  };
+  guardar.onclick = enviar;
+  cancelar.onclick = volver;
+  [numero, nombre].forEach((i) => {
+    i.onkeydown = (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); enviar(); }
+      if (ev.key === 'Escape') volver();
+    };
+  });
+
+  li.classList.add('flex-wrap'); // en pantallas angostas los botones pasan a la línea de abajo
+  li.replaceChildren(numero, nombre, guardar, cancelar);
+  numero.focus();
+  numero.select();
+}
+
 function dibujar(estado) {
   const { carrera, competidores, completa } = estado;
   $('config').classList.add('hidden');
@@ -224,7 +285,7 @@ function dibujar(estado) {
     quitar.textContent = 'Quitar';
     quitar.setAttribute('aria-label', 'Quitar a ' + c.nombre);
     quitar.onclick = () => accion(async () => dibujar(await api('DELETE', '/api/carreras/' + carreraId + '/competidores/' + c.id)));
-    lista.appendChild(fila('border-2 border-asfalto bg-white', [placa, nombre, quitar]));
+    lista.appendChild(fila('border-2 border-asfalto bg-white', [placa, nombre, botonEditar(c), quitar]));
   }
 }
 
@@ -383,7 +444,7 @@ function dibujarResultados(estado) {
   const claseIncidente = 'rounded-md border-2 border-bandera px-4 py-2 text-lg font-bold text-bandera focus:outline-none focus:ring-4 focus:ring-placa disabled:opacity-40';
 
   llenar('pista', enPista, (c) => fila('border-2 border-asfalto bg-white', [
-    placa(c), nombre(c),
+    placa(c), nombre(c), botonEditar(c, true),
     boton('Llegó', 'boton', () => marcar(c.id, 'llegada')),
     boton('Incidente', claseIncidente, () => marcar(c.id, 'incidente')),
   ]));
@@ -411,7 +472,7 @@ function dibujarResultados(estado) {
       (gana ? ' ganador' + (animar ? ' ganador-anim' : '') : hayGanador ? ' opacity-70' : '');
     const partes = [
       etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
-      placa(c), nombre(c),
+      placa(c), nombre(c), botonEditar(c, true),
       etiqueta('text-2xl font-bold tabular-nums', formato(c.tiempo_ms)),
     ];
     if (gana) {
@@ -433,7 +494,7 @@ function dibujarResultados(estado) {
   dibujarPodio(estado);
 
   llenar('inc', incidentes, (c) => fila('border-2 border-bandera bg-white', [
-    placa(c), nombre(c), etiqueta('font-bold text-bandera', 'Incidente'),
+    placa(c), nombre(c), botonEditar(c, true), etiqueta('font-bold text-bandera', 'Incidente'),
   ].concat(estado.hay_desempates ? [] : [deshacer(c)]).concat(puedeEliminar ? [eliminar(c)] : [])));
 }
 
