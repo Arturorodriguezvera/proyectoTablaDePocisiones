@@ -442,6 +442,37 @@ caso('editar: se puede con la carrera en curso y terminada, sin cambiar tiempos 
   await falla('PUT', url(ids[0]), 404, { nombre: 'Ana', numero: 11 });
 });
 
+caso('mejor tiempo: el servidor informa el mejor tiempo de todas las carreras', async () => {
+  const minimo = async () => {
+    const [[r]] = await pool.query("SELECT MIN(tiempo_ms) AS m FROM competidores WHERE estado = 'llego' AND eliminado = 0 AND tiempo_ms IS NOT NULL");
+    return r.m === null ? null : Number(r.m);
+  };
+  const { id, ids } = await nueva(2);
+  let e = await estado(id);
+  assert.strictEqual(e.mejor_tiempo_ms, await minimo()); // una carrera sin largar no lo cambia
+  await largar(id);
+  await llegar(id, ids[0]);
+  e = await llegar(id, ids[1]);
+  assert.strictEqual(typeof e.mejor_tiempo_ms, 'number');
+  assert.strictEqual(e.mejor_tiempo_ms, await minimo());
+  assert.ok(e.mejor_tiempo_ms <= Math.min(...e.competidores.map((c) => c.tiempo_ms)));
+  // Un tiempo chiquito en esta carrera pasa a ser el mejor de todos...
+  await fijarTiempo(ids[1], 1);
+  assert.strictEqual((await estado(id)).mejor_tiempo_ms, 1);
+  assert.strictEqual((await bien('GET', '/api/carreras/actual')).mejor_tiempo_ms, 1);
+  // ...hasta que ese competidor se elimina de la tabla final...
+  await pool.query('UPDATE competidores SET eliminado = 1 WHERE id = ?', [ids[1]]);
+  e = await estado(id);
+  assert.strictEqual(e.mejor_tiempo_ms, await minimo());
+  assert.ok(e.mejor_tiempo_ms > 1);
+  // ...o se le deshace la llegada (se borra su tiempo).
+  await pool.query('UPDATE competidores SET eliminado = 0 WHERE id = ?', [ids[1]]);
+  await bien('POST', ruta(id, ids[1], 'deshacer'));
+  e = await estado(id);
+  assert.strictEqual(e.mejor_tiempo_ms, await minimo());
+  assert.ok(e.mejor_tiempo_ms === null || e.mejor_tiempo_ms > 1);
+});
+
 (async () => {
   let fallas = 0;
   for (const [nombre, fn] of casos) {

@@ -71,9 +71,14 @@ async function cargar(id) {
   const ganadores = carrera.estado === 'finalizada' && !pendiente
     ? competidores.filter((c) => c.posicion === 1).map((c) => c.id)
     : [];
+  // Mejor tiempo de todas las carreras guardadas (etapa 20): las pantallas lo destacan en quien lo tenga. Solo cuentan los
+  // tiempos de llegada de la carrera (no los de desempate) y los competidores que no fueron eliminados de la tabla final.
+  const [[mejor]] = await pool.query(
+    "SELECT MIN(tiempo_ms) AS m FROM competidores WHERE estado = 'llego' AND eliminado = 0 AND tiempo_ms IS NOT NULL");
   return {
     carrera, competidores, completa: competidores.length >= carrera.cupo, ahora_ms: Date.now(),
     desempate, hay_desempates: desempates.length > 0, ganadores,
+    mejor_tiempo_ms: mejor.m === null ? null : Number(mejor.m),
   };
 }
 

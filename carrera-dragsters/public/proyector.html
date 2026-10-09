@@ -89,7 +89,7 @@ function etiqueta(clases, texto) {
 }
 
 // Podio: cuando la carrera terminó y el ganador está definido. El zoom del ganador se muestra una sola vez.
-function dibujarPodio(llegaron, decidido, animar) {
+function dibujarPodio(llegaron, decidido, animar, mejorMs) {
   $('b-podio').classList.toggle('hidden', !decidido);
   if (!decidido) return;
   const altura = { 1: 'h-40', 2: 'h-28', 3: 'h-20' };
@@ -107,7 +107,11 @@ function dibujarPodio(llegaron, decidido, animar) {
         (p === 1 ? ' ganador' + (animar ? ' ganador-anim' : '') : '');
       ficha.appendChild(etiqueta('placa', x.numero));
       ficha.appendChild(etiqueta('text-3xl font-semibold', x.nombre));
-      ficha.appendChild(etiqueta('text-2xl font-bold tabular-nums', formato(x.tiempo_ms)));
+      const tiempo = etiqueta('text-2xl font-bold tabular-nums', formato(x.tiempo_ms));
+      const mejor = Tiempos.esMejor(x, mejorMs); // mejor tiempo de todas las carreras: violeta
+      if (mejor) tiempo.style.color = Tiempos.MORADO;
+      ficha.appendChild(tiempo);
+      if (mejor) ficha.appendChild(Tiempos.etiquetaMejor('text-xl'));
       const dif = Tiempos.diferencia(x, ref);
       if (dif) ficha.appendChild(Tiempos.etiquetaDiferencia(dif, 'text-xl font-semibold text-asfalto'));
       col.appendChild(ficha);
@@ -173,7 +177,7 @@ function dibujar(e) {
   const animar = hayGanador && clave !== ganadorVisto; // el zoom se muestra una sola vez
   if (hayGanador) ganadorVisto = clave;
   const decidido = c.estado === 'finalizada' && !d.estado && hayGanador; // carrera terminada y ganador definido: se muestra el podio
-  dibujarPodio(llegaron, decidido, animar);
+  dibujarPodio(llegaron, decidido, animar, e.mejor_tiempo_ms);
   const lista = decidido ? llegaron.filter((x) => x.posicion > 3) : llegaron; // con podio, abajo queda del 4.º en adelante
   $('b-lista').classList.toggle('hidden', config || (decidido && lista.length === 0));
   $('titulo-lista').textContent = decidido ? 'Resto de las posiciones' : 'Posiciones';
@@ -190,7 +194,8 @@ function dibujar(e) {
     li.appendChild(etiqueta('placa', x.numero));
     li.appendChild(etiqueta('flex-1 text-3xl font-semibold', x.nombre));
     if (gana) li.appendChild(etiqueta('rounded-md bg-asfalto px-3 py-1 text-xl font-bold text-white', e.ganadores.length > 1 ? 'Empate en 1.º' : 'Ganador'));
-    li.appendChild(Tiempos.celda(formato(x.tiempo_ms), Tiempos.diferencia(x, referencia), 'text-3xl font-bold tabular-nums', 'text-xl font-semibold text-asfalto'));
+    li.appendChild(Tiempos.celda(formato(x.tiempo_ms), Tiempos.diferencia(x, referencia), 'text-3xl font-bold tabular-nums', 'text-xl font-semibold text-asfalto',
+      Tiempos.esMejor(x, e.mejor_tiempo_ms)));
     ul.appendChild(li);
   });
 }
@@ -247,7 +252,7 @@ async function consultar() {
       const ini = inicioActual();
       if (ini !== null) Sonido.programar(ini, desfase);
       // Solo se vuelve a dibujar si algo cambió (así no se repite la animación del ganador).
-      const nueva = JSON.stringify([e.carrera, e.competidores, e.ganadores, e.desempate]);
+      const nueva = JSON.stringify([e.carrera, e.competidores, e.ganadores, e.desempate, e.mejor_tiempo_ms]);
       if (nueva !== firma) {
         firma = nueva;
         dibujar(e);

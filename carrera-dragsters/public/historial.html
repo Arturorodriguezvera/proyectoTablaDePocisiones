@@ -140,7 +140,8 @@ function dibujarDetalle(e) {
     const gana = e.ganadores.includes(x.id);
     return fila('border-2 border-asfalto bg-white' + (gana ? ' ganador' : ''), [
       etiqueta('w-12 text-4xl font-black tabular-nums', x.posicion), placa(x), nombre(x),
-      Tiempos.celda(formato(x.tiempo_ms), Tiempos.diferencia(x, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80'),
+      Tiempos.celda(formato(x.tiempo_ms), Tiempos.diferencia(x, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80',
+        Tiempos.esMejor(x, e.mejor_tiempo_ms)),
     ]);
   });
   llenar('inc', vivos.filter((x) => x.estado === 'incidente'), (x) =>

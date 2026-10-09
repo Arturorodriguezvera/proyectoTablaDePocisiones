@@ -428,7 +428,11 @@ function dibujarPodio(estado) {
       ficha.className = 'flex flex-col items-center gap-1 rounded-md border-2 border-asfalto bg-white px-2 py-3 text-center' + (p === 1 ? ' ganador' : '');
       ficha.appendChild(etiqueta('placa', x.numero));
       ficha.appendChild(etiqueta('text-xl font-semibold', x.nombre));
-      ficha.appendChild(etiqueta('text-lg font-bold tabular-nums', formato(x.tiempo_ms)));
+      const tiempo = etiqueta('text-lg font-bold tabular-nums', formato(x.tiempo_ms));
+      const mejor = Tiempos.esMejor(x, estado.mejor_tiempo_ms); // mejor tiempo de todas las carreras: violeta
+      if (mejor) tiempo.style.color = Tiempos.MORADO;
+      ficha.appendChild(tiempo);
+      if (mejor) ficha.appendChild(Tiempos.etiquetaMejor('text-base'));
       const dif = Tiempos.diferencia(x, ref);
       if (dif) ficha.appendChild(Tiempos.etiquetaDiferencia(dif, 'text-base font-semibold text-asfalto/80'));
       col.appendChild(ficha);
@@ -482,7 +486,8 @@ function dibujarResultados(estado) {
     const partes = [
       etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
       placa(c), nombre(c), botonEditar(c, true),
-      Tiempos.celda(formato(c.tiempo_ms), Tiempos.diferencia(c, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80'),
+      Tiempos.celda(formato(c.tiempo_ms), Tiempos.diferencia(c, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80',
+        Tiempos.esMejor(c, estado.mejor_tiempo_ms)),
     ];
     if (gana) {
       partes.push(etiqueta('rounded-md bg-asfalto px-3 py-1 font-bold text-white',
