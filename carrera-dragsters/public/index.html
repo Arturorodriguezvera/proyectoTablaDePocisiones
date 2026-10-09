@@ -85,7 +85,8 @@
       <p id="faltan" class="font-semibold"></p>
     </div>
 
-    <div id="cronometro" class="mt-6 hidden rounded-md bg-asfalto px-6 py-6 text-white">
+    <div id="cronometro" class="relative mt-6 hidden rounded-md bg-asfalto px-6 py-6 text-white">
+      <div id="arbol-control" class="absolute right-6 top-6"></div>
       <p id="estado-carrera" class="font-semibold text-white/70">Carrera en curso</p>
       <p id="reloj" class="text-7xl tabular-nums sm:text-8xl lg:text-9xl" style="font-family: Impact, 'Arial Narrow Bold', sans-serif">00:00.00</p>
     </div>
@@ -122,6 +123,7 @@
   </section>
 </main>
 
+<script src="/arbol.js"></script>
 <script src="/sonido.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -290,6 +292,9 @@ function dibujar(estado) {
 }
 
 // Cronómetro: el tiempo sale del reloj del servidor, así sigue bien aunque se recargue la página.
+// Árbol de luces de la largada (etapa 18): se ve solo durante la cuenta regresiva y el ¡YA!. El tamaño se achica en pantallas angostas.
+const arbolControl = Arbol.crear('min(2.75rem, 9vw)', 'flex-end');
+$('arbol-control').appendChild(arbolControl);
 let relojId = null;
 let pistaBloqueada = false; // los botones de En pista se deshabilitan durante la cuenta regresiva
 function formato(ms) {
@@ -302,6 +307,7 @@ function detenerReloj() {
   if (relojId) cancelAnimationFrame(relojId);
   relojId = null;
   pistaBloqueada = false;
+  Arbol.actualizar(arbolControl, null);
 }
 
 // Deshabilita (o habilita) Llegó e Incidente de En pista y del desempate.
@@ -317,13 +323,11 @@ function iniciarReloj(inicio, desfase, etiqueta, conCuenta) {
   const pintar = () => {
     const ms = Date.now() + desfase - inicio;
     if (conCuenta) Sonido.programar(inicio, desfase); // pitido en el 3, 2, 1 y en el ya
-    if (conCuenta && ms < 0) {
-      $('reloj').textContent = String(Math.ceil(-ms / 1000));
-      $('estado-carrera').textContent = 'Preparados...';
-    } else {
-      $('reloj').textContent = conCuenta && ms < 700 ? '¡YA!' : formato(Math.max(0, ms));
-      if (conCuenta) $('estado-carrera').textContent = etiqueta;
-    }
+    // Lo que muestra la cuenta: 3, 2, 1, ¡YA! (0,7 s) o nada. El árbol de luces y el reloj usan el mismo texto.
+    const fase = !conCuenta ? null : ms < 0 ? String(Math.ceil(-ms / 1000)) : ms < 700 ? '¡YA!' : null;
+    Arbol.actualizar(arbolControl, fase);
+    $('reloj').textContent = fase !== null ? fase : formato(Math.max(0, ms));
+    if (conCuenta) $('estado-carrera').textContent = ms < 0 ? 'Preparados...' : etiqueta;
     if (conCuenta) bloquearPista(ms < 0);
     relojId = requestAnimationFrame(pintar);
   };
