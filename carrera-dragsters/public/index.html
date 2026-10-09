@@ -124,6 +124,7 @@
 </main>
 
 <script src="/arbol.js"></script>
+<script src="/tiempos.js"></script>
 <script src="/sonido.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -413,6 +414,7 @@ function dibujarPodio(estado) {
     '. ' + (estado.ganadores.length > 1 ? 'Empate en el 1.er puesto: ' : 'Ganador: ') + nombres + '.';
   // Podio: 2.º a la izquierda, 1.º al centro, 3.º a la derecha (si hay empates, varios en el mismo escalón)
   const top = estado.competidores.filter((x) => x.estado === 'llego' && !x.eliminado && x.posicion <= 3);
+  const ref = Tiempos.referencia(estado.competidores.filter((x) => x.estado === 'llego' && !x.eliminado)); // tiempo del 1.º
   const altura = { 1: 'h-28', 2: 'h-20', 3: 'h-12' };
   const podio = $('podio');
   podio.replaceChildren();
@@ -427,6 +429,8 @@ function dibujarPodio(estado) {
       ficha.appendChild(etiqueta('placa', x.numero));
       ficha.appendChild(etiqueta('text-xl font-semibold', x.nombre));
       ficha.appendChild(etiqueta('text-lg font-bold tabular-nums', formato(x.tiempo_ms)));
+      const dif = Tiempos.diferencia(x, ref);
+      if (dif) ficha.appendChild(Tiempos.etiquetaDiferencia(dif, 'text-base font-semibold text-asfalto/80'));
       col.appendChild(ficha);
     });
     col.appendChild(etiqueta('flex items-center justify-center rounded-t-md text-4xl font-black ' + altura[p] + (p === 1 ? ' bg-placa text-asfalto' : ' bg-asfalto text-white'), p + '.º'));
@@ -445,6 +449,7 @@ function dibujarResultados(estado) {
   const llegaron = competidores.filter((c) => c.estado === 'llego')
     .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero);
   const incidentes = competidores.filter((c) => c.estado === 'incidente');
+  const referencia = Tiempos.referencia(llegaron); // tiempo del 1.º, para mostrar la diferencia de los demás
   const claseIncidente = 'rounded-md border-2 border-bandera px-4 py-2 text-lg font-bold text-bandera focus:outline-none focus:ring-4 focus:ring-placa disabled:opacity-40';
 
   llenar('pista', enPista, (c) => fila('border-2 border-asfalto bg-white', [
@@ -477,7 +482,7 @@ function dibujarResultados(estado) {
     const partes = [
       etiqueta('w-12 text-4xl font-black tabular-nums', c.posicion),
       placa(c), nombre(c), botonEditar(c, true),
-      etiqueta('text-2xl font-bold tabular-nums', formato(c.tiempo_ms)),
+      Tiempos.celda(formato(c.tiempo_ms), Tiempos.diferencia(c, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80'),
     ];
     if (gana) {
       partes.push(etiqueta('rounded-md bg-asfalto px-3 py-1 font-bold text-white',

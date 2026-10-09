@@ -51,6 +51,7 @@
   </div>
 </main>
 
+<script src="/tiempos.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let carreras = [];
@@ -132,12 +133,14 @@ function dibujarDetalle(e) {
   const vivos = e.competidores.filter((x) => !x.eliminado); // los eliminados de la tabla final no se muestran
   const placa = (x) => etiqueta('placa', x.numero);
   const nombre = (x) => etiqueta('flex-1 text-xl font-semibold', x.nombre);
-  llenar('pos', vivos.filter((x) => x.estado === 'llego')
-    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero), (x) => {
+  const llegaron = vivos.filter((x) => x.estado === 'llego')
+    .sort((a, b) => a.posicion - b.posicion || a.tiempo_ms - b.tiempo_ms || a.numero - b.numero);
+  const referencia = Tiempos.referencia(llegaron); // tiempo del 1.º, para mostrar la diferencia de los demás
+  llenar('pos', llegaron, (x) => {
     const gana = e.ganadores.includes(x.id);
     return fila('border-2 border-asfalto bg-white' + (gana ? ' ganador' : ''), [
       etiqueta('w-12 text-4xl font-black tabular-nums', x.posicion), placa(x), nombre(x),
-      etiqueta('text-2xl font-bold tabular-nums', formato(x.tiempo_ms)),
+      Tiempos.celda(formato(x.tiempo_ms), Tiempos.diferencia(x, referencia), 'text-2xl font-bold tabular-nums', 'text-base font-semibold text-asfalto/80'),
     ]);
   });
   llenar('inc', vivos.filter((x) => x.estado === 'incidente'), (x) =>
